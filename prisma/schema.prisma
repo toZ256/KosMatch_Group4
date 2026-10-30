@@ -27,6 +27,7 @@ model Kos {
   lng               Float
   dalamJakarta      Boolean  @default(true)
   fotoColor         String?  @default("#B8C4D6")
+  ownerId           String?  @default("owner-bu-sari")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -34,6 +35,7 @@ model Kos {
   @@index([hargaSewa])
   @@index([region])
   @@index([kecamatan])
+  @@index([ownerId])
 }
 
 model User {

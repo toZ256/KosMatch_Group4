@@ -79,6 +79,12 @@ describe('seed', () => {
   });
 
   it('throws a clear error for unsupported data stores', async () => {
-    await expect(createRepository('postgres')).rejects.toThrow('Provider belum diimplementasikan');
+    await expect(createRepository('mysql')).rejects.toThrow('Provider belum diimplementasikan');
+  });
+
+  it('creates a PrismaRepository for postgres data store', async () => {
+    const repo = await createRepository('postgres');
+    expect(repo).toBeDefined();
+    expect(repo.kos).toBeDefined();
   });
 });
