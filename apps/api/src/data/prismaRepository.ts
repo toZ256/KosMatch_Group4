@@ -50,7 +50,11 @@ function toDomainDestination(d: PrismaDestination): Destination {
 
 /** PostgreSQL & Prisma-backed Repository implementation. */
 export class PrismaRepository implements Repository {
-  constructor(private readonly prisma: PrismaClient) {}
+  private readonly prisma: PrismaClient;
+
+  constructor(prisma: PrismaClient) {
+    this.prisma = prisma;
+  }
 
   users: Repository['users'] = {
     findByEmail: async (email) => {
