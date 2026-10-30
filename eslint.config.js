@@ -21,7 +21,7 @@ export default tseslint.config(
     rules: reactHooks.configs.recommended.rules,
   },
   {
-    files: ['apps/api/**/*.ts', 'packages/**/*.ts', '*.js', 'e2e/**/*.ts', '*.config.ts'],
+    files: ['apps/api/**/*.ts', 'packages/**/*.ts', '*.js', 'prisma/**/*.js', 'e2e/**/*.ts', '*.config.ts'],
     languageOptions: { globals: globals.node },
   },
   prettier,

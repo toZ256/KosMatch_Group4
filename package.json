@@ -14,7 +14,14 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "db:push": "prisma db push",
+    "db:seed": "node prisma/seed.js",
+    "db:studio": "prisma studio",
+    "db:generate": "prisma generate"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.14.0",
@@ -26,7 +33,14 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "globals": "^15.12.0",
     "prettier": "^3.3.3",
+    "prisma": "^6.4.1",
     "typescript": "^5.6.3",
     "typescript-eslint": "^8.13.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^2.4.3",
+    "csv-parser": "^3.2.1",
+    "pg": "^8.23.1"
   }
 }

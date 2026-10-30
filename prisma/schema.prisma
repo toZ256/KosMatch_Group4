@@ -1,0 +1,78 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Kos {
+  id                String   @id
+  namaKos           String
+  area              String
+  region            String
+  kecamatan         String
+  tipe              String
+  hargaSewa         Int
+  fasilitas         String
+  rating            Float?
+  jumlahUlasan      Int?     @default(0)
+  transaksiBerhasil Int?     @default(0)
+  luasM2            Float?
+  listrikTermasuk   Boolean  @default(false)
+  sisaKamar         Float?
+  deskripsi         String?
+  lat               Float
+  lng               Float
+  dalamJakarta      Boolean  @default(true)
+  fotoColor         String?  @default("#B8C4D6")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([area])
+  @@index([hargaSewa])
+  @@index([region])
+  @@index([kecamatan])
+}
+
+model User {
+  id           String   @id @default(uuid())
+  nama         String
+  email        String   @unique
+  passwordHash String
+  role         String   @default("tenant")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Destination {
+  id        String   @id
+  nama      String
+  kategori  String
+  latitude  Float
+  longitude Float
+  aliases   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Bookmark {
+  id        String   @id @default(uuid())
+  userId    String
+  kosId     String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, kosId])
+  @@index([userId])
+}
+
+model ChatHistory {
+  id         String   @id @default(uuid())
+  senderId   String
+  receiverId String
+  pesan      String
+  sentAt     DateTime @default(now())
+
+  @@index([senderId, receiverId])
+}
