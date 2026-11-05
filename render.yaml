@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: kosmatch-api
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: pnpm install --frozen-lockfile && pnpm db:generate
+    startCommand: pnpm --filter @kosmatch/api start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        sync: false
+      - key: DATA_STORE
+        value: postgres
+      - key: DATABASE_URL
+        sync: false
+      - key: COMMUTE_PROVIDER
+        value: osrm
+      - key: OSRM_BASE_URL
+        value: https://router.project-osrm.org
+      - key: USE_MOCK_AI
+        value: "false"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        value: gemini-2.5-flash

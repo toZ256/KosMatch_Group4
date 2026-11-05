@@ -1,0 +1,47 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify-and-build:
+    name: Verify & Build Production Artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm exec prisma generate
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit & Integration Tests
+        run: pnpm test
+
+      - name: Build Web Production Bundle
+        run: pnpm --filter @kosmatch/web build
+        env:
+          VITE_API_BASE_URL: ${{ secrets.PROD_API_URL || '' }}
+
+      - name: Build Backend Production
+        run: pnpm --filter @kosmatch/api build

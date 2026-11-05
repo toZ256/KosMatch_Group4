@@ -16,7 +16,10 @@ export function connectSocket(token: string): Socket {
   socket?.disconnect();
   useConnectionStore.setState({ status: 'connecting' });
   socketToken = token;
-  socket = io({
+  const socketUrl = import.meta.env.VITE_API_BASE_URL
+    ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/+$/, '')
+    : undefined;
+  socket = io(socketUrl, {
     auth: { token },
     reconnection: true,
     reconnectionDelay: 500,
