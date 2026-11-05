@@ -13,7 +13,7 @@ export class ApiError extends Error {
   }
 }
 
-export const http = axios.create({ baseURL: '/api', timeout: 15000 });
+export const http = axios.create({ baseURL: '/api', timeout: 30000 });
 
 http.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token;

@@ -110,6 +110,7 @@ export const KosFormSchema = z.object({
 
 export const KosQuerySchema = z.object({
   q: z.string().trim().optional(),
+  minPrice: z.coerce.number().positive().optional(),
   maxPrice: z.coerce.number().positive().optional(),
   tipe: TipeKosSchema.optional(),
   destinationId: z.string().optional(),
@@ -126,11 +127,15 @@ export const ChatbotInputSchema = z.object({
 
 export const ChatParamsSchema = z.object({
   destinationId: z.string().optional(),
+  minBudgetMonthly: z.number().positive().optional(),
   maxBudgetMonthly: z.number().positive().optional(),
   maxCommuteMin: z.number().positive().optional(),
   maxCommuteCostRp: z.number().positive().optional(),
   preferredMode: TransportModeSchema.optional(),
   tipe: TipeKosSchema.optional(),
+  fasilitas: z.array(z.string()).optional(),
+  areaKeywords: z.array(z.string()).optional(),
+  listrikTermasuk: z.boolean().optional(),
 });
 
 export const BookmarkInputSchema = z.object({ kosId: z.string().min(1) });

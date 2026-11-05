@@ -2,7 +2,7 @@ import { forwardRef, useId, type InputHTMLAttributes, type SelectHTMLAttributes,
 import { cn } from '../../lib/cn';
 
 const fieldClass =
-  'w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink placeholder:text-muted/70 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30';
+  'w-full rounded-2xl border border-line/80 bg-bg/50 px-4 py-3 text-sm text-ink transition placeholder:text-muted/70 hover:border-accent/50 focus:border-accent focus:bg-surface focus:outline-none focus:ring-4 focus:ring-accent/15';
 
 interface FieldProps {
   label?: string;

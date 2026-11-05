@@ -2,15 +2,14 @@
 
 Baca `docs/PRD.md` sebelum mengerjakan tugas apa pun. Aturan keras di bawah ini WAJIB dipatuhi.
 
-1. DILARANG memakai Google Maps API atau LLM API sungguhan. Jangan instal SDK-nya, jangan buat
-   request ke domain luar, jangan minta API key. Gunakan `MockLlmProvider` dan `MockCommuteProvider`.
+1. FASE M3: Jangan instal SDK berbayar Google Maps. Untuk estimasi rute jalan nyata gunakan `OsrmCommuteProvider` (OpenStreetMap/OSRM) dengan fallback ke `MockCommuteProvider`. Untuk AI Chatbot gunakan `RagLlmProvider` (kompatibel dengan 9Router / OpenAI-compatible gateway melalui `fetch` bawaan) dengan fallback ke `MockLlmProvider`.
 2. FASE M2: PostgreSQL dan Prisma ORM diizinkan untuk persistensi data.
    Gunakan skema Prisma yang memetakan dataset (termasuk `kos_clean.csv`) dan letakkan implementasi
    di balik interface `Repository` (mis. `PrismaRepository`). `InMemoryRepository` tetap dipertahankan
    sebagai fallback saat pengujian/development offline.
 3. Service hanya boleh bergantung pada interface (`Repository`, `LlmProvider`, `CommuteProvider`),
    bukan implementasi konkret. Implementasi dipilih lewat factory berdasarkan env
-   (`USE_MOCK_AI=true`, `DATA_STORE=postgres` atau `DATA_STORE=memory`). Nilai lain: lempar error "Provider belum diimplementasikan".
+   (`USE_MOCK_AI`, `COMMUTE_PROVIDER`, `DATA_STORE`). Nilai lain: lempar error "Provider belum diimplementasikan".
 4. Semua teks UI dalam BAHASA INDONESIA. Kode, nama variabel, komentar dalam Inggris.
 5. Jangan ada tombol/link dummy tanpa handler. Fitur di luar cakupan (mis. Notifikasi) tetap bisa
    diklik dan menampilkan empty state yang rapi.

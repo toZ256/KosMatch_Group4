@@ -25,7 +25,7 @@ export function Modal({ open, title, onClose, children }: ModalProps) {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative w-full max-w-md animate-fade-in rounded-card bg-surface p-6 shadow-card"
+        className="relative w-full max-w-md animate-fade-in rounded-[32px] border border-line/60 bg-surface p-7 shadow-float"
       >
         <div className="mb-3 flex items-start justify-between gap-4">
           <h2 className="text-lg font-semibold">{title}</h2>

@@ -107,8 +107,11 @@ export class PrismaRepository implements Repository {
   kos: Repository['kos'] = {
     list: async (filter?: KosFilter) => {
       const where: Prisma.KosWhereInput = {};
-      if (filter?.maxPrice !== undefined) {
-        where.hargaSewa = { lte: filter.maxPrice };
+      if (filter?.minPrice !== undefined || filter?.maxPrice !== undefined) {
+        where.hargaSewa = {
+          ...(filter?.minPrice !== undefined ? { gte: filter.minPrice } : {}),
+          ...(filter?.maxPrice !== undefined ? { lte: filter.maxPrice } : {}),
+        };
       }
       if (filter?.tipe) {
         where.tipe = filter.tipe;

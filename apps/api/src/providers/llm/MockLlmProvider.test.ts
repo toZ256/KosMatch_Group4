@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DESTINATION_SEED } from '../../data/seed';
 import { MockLlmProvider } from './MockLlmProvider';
+import { RagLlmProvider } from './RagLlmProvider';
 import { createLlmProvider } from './index';
 import { ChatParamsSchema } from '@kosmatch/shared';
 
@@ -14,6 +15,17 @@ describe('MockLlmProvider.extractParams', () => {
   });
   it('parses decimal "2,5 jt"', async () => {
     expect((await parse('maksimal 2,5 jt')).maxBudgetMonthly).toBe(2_500_000);
+  });
+  it('parses budget range "1-2 juta" and facility "kamar mandi dalam"', async () => {
+    const p = await parse(
+      'Tolong carikan koskosan dekat UI dengan range budget 1-2 juta jangan lebih dan jangan kurang kemudian kamar mandi dalam',
+    );
+    expect(p).toEqual({
+      destinationId: 'universitas-indonesia',
+      minBudgetMonthly: 1_000_000,
+      maxBudgetMonthly: 2_000_000,
+      fasilitas: ['Kamar Mandi Dalam'],
+    });
   });
   it('parses "800rb" as rent (>= 500.000)', async () => {
     expect((await parse('kos 800rb')).maxBudgetMonthly).toBe(800_000);
@@ -70,8 +82,75 @@ describe('MockLlmProvider.composeReply', () => {
   });
 });
 
-describe('provider factory', () => {
-  it('throws for non-mock providers', () => {
-    expect(() => createLlmProvider(false)).toThrow('Provider belum diimplementasikan');
+describe('provider factory & RagLlmProvider (Google AI Studio & Gateway)', () => {
+  it('creates RagLlmProvider for false/gemini and throws for unknown provider', () => {
+    expect(createLlmProvider(false)).toBeInstanceOf(RagLlmProvider);
+    expect(createLlmProvider('gemini')).toBeInstanceOf(RagLlmProvider);
+    expect(() => createLlmProvider('unsupported')).toThrow('Provider belum diimplementasikan');
+  });
+
+  it('calls Google AI Studio generateContent endpoint and generates RAG reply with retrieved context', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: 'Ditemukan 1 kos yang cocok yaitu Kos Andalan UI (Rp1.650.000/bulan) dengan ojek 10 menit.',
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+
+    const rag = new RagLlmProvider({
+      apiKey: 'AIzaSyTestKey',
+      model: 'gemini-2.5-flash',
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    const reply = await rag.composeReply({ destinationId: 'universitas-indonesia', maxBudgetMonthly: 2_000_000 }, 1, {
+      message: 'Cari kos dekat UI budget 2 juta',
+      destination: dests[0],
+      results: [
+        {
+          kos: {
+            id: 'k1',
+            ownerId: 'o1',
+            namaKos: 'Kos Andalan UI',
+            hargaSewa: 1_650_000,
+            latitude: -6.36,
+            longitude: 106.82,
+            area: 'Beji, Depok',
+            tipe: 'campur',
+            fasilitas: ['AC', 'WiFi'],
+            deskripsi: 'Dekat UI',
+            rating: 4.8,
+            fotoColor: '#fff',
+          },
+          commute: [
+            {
+              destinationId: 'universitas-indonesia',
+              mode: 'ojek',
+              distanceKm: 2.1,
+              durationMin: 10,
+              costRp: 8000,
+              transitTransfers: 0,
+              isEstimate: true,
+              source: 'mock',
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(reply).toContain('Kos Andalan UI');
+    expect(reply).toMatch(/Estimasi/i);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('generativelanguage.googleapis.com');
   });
 });

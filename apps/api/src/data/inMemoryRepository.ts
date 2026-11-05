@@ -31,6 +31,7 @@ export class InMemoryRepository implements Repository {
     list: async (filter?: KosFilter) => {
       const q = filter?.q?.trim().toLowerCase();
       return [...this.kosMap.values()]
+        .filter((k) => filter?.minPrice === undefined || k.hargaSewa >= filter.minPrice)
         .filter((k) => filter?.maxPrice === undefined || k.hargaSewa <= filter.maxPrice)
         .filter((k) => !filter?.tipe || k.tipe === filter.tipe)
         .filter(

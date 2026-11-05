@@ -60,11 +60,11 @@ export function ConversationList({
 }) {
   const showPending = pendingUser && !conversations.some((c) => c.otherUser.id === pendingUser.id);
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-card bg-surface shadow-card">
-      <div className="border-b border-line px-5 py-4">
-        <h1 className="text-base font-bold">Pesan</h1>
+    <div className="flex h-full flex-col overflow-hidden rounded-[28px] border border-line/60 bg-surface/95 shadow-card backdrop-blur-sm">
+      <div className="border-b border-line/60 px-5 py-4">
+        <h1 className="text-base font-extrabold tracking-tight">Pesan</h1>
       </div>
-      <ul className="flex-1 overflow-y-auto" aria-label="Daftar percakapan">
+      <ul className="flex-1 space-y-1 overflow-y-auto p-2.5" aria-label="Daftar percakapan">
         {loading && (
           <li className="flex justify-center p-6 text-muted">
             <Spinner />
@@ -72,10 +72,10 @@ export function ConversationList({
         )}
         {showPending && pendingUser && (
           <li>
-            <Link to={`/chat/${pendingUser.id}`} className="flex items-center gap-3 bg-accent/10 px-5 py-3">
+            <Link to={`/chat/${pendingUser.id}`} className="flex items-center gap-3 rounded-2xl bg-accent/15 px-4 py-3">
               <Avatar name={pendingUser.nama} size={40} />
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold">{pendingUser.nama}</p>
+                <p className="truncate text-sm font-bold">{pendingUser.nama}</p>
                 <p className="truncate text-xs text-muted">Mulai percakapan baru</p>
               </div>
             </Link>
@@ -89,12 +89,15 @@ export function ConversationList({
             <Link
               to={`/chat/${c.otherUser.id}`}
               data-testid="conversation-item"
-              className={cn('flex items-center gap-3 px-5 py-3 transition hover:bg-bg', activeId === c.otherUser.id && 'bg-accent/10')}
+              className={cn(
+                'flex items-center gap-3 rounded-2xl px-4 py-3 transition hover:bg-bg/80',
+                activeId === c.otherUser.id && 'bg-accent/15',
+              )}
             >
               <Avatar name={c.otherUser.nama} size={40} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className="truncate text-sm font-semibold">{c.otherUser.nama}</p>
+                  <p className="truncate text-sm font-bold">{c.otherUser.nama}</p>
                   <span className="shrink-0 text-[10px] text-muted">{formatTime(c.last.sentAt)}</span>
                 </div>
                 <p className="truncate text-xs text-muted">{c.last.pesan}</p>
@@ -139,19 +142,19 @@ export function ChatRoom({ otherId, other }: { otherId: string; other?: PublicUs
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-card bg-surface shadow-card">
-      <header className="flex items-center gap-3 border-b border-line px-4 py-3">
+    <div className="flex h-full flex-col overflow-hidden rounded-[28px] border border-line/60 bg-surface/95 shadow-card backdrop-blur-sm">
+      <header className="flex items-center gap-3 border-b border-line/60 px-5 py-3.5">
         <Link to="/chat" aria-label="Kembali ke daftar pesan" className="rounded-full p-1.5 hover:bg-bg md:hidden">
           <ArrowLeft size={18} />
         </Link>
-        <Avatar name={other?.nama ?? '?'} size={36} />
+        <Avatar name={other?.nama ?? '?'} size={38} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{other?.nama ?? 'Memuat...'}</p>
+          <p className="truncate text-sm font-bold">{other?.nama ?? 'Memuat...'}</p>
           <ConnectionIndicator />
         </div>
       </header>
 
-      <div className="flex-1 space-y-2 overflow-y-auto bg-bg/60 p-4" data-testid="chat-messages">
+      <div className="flex-1 space-y-2.5 overflow-y-auto bg-bg/45 p-4" data-testid="chat-messages">
         {isLoading && (
           <div className="flex justify-center py-6 text-muted">
             <Spinner />
@@ -164,9 +167,14 @@ export function ChatRoom({ otherId, other }: { otherId: string; other?: PublicUs
           const mine = m.senderId === me?.id;
           return (
             <div key={m.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
-              <div className={cn('max-w-[80%] rounded-2xl px-4 py-2 text-sm', mine ? 'bg-ink text-white' : 'border border-line bg-surface text-ink')}>
+              <div
+                className={cn(
+                  'max-w-[80%] rounded-[22px] px-4 py-2.5 text-sm shadow-sm',
+                  mine ? 'rounded-br-md bg-ink text-white' : 'rounded-bl-md border border-line/70 bg-surface text-ink',
+                )}
+              >
                 <p className="whitespace-pre-wrap break-words">{m.pesan}</p>
-                <p className={cn('mt-0.5 text-right text-[10px]', mine ? 'text-white/60' : 'text-muted')}>{formatTime(m.sentAt)}</p>
+                <p className={cn('mt-1 text-right text-[10px]', mine ? 'text-white/60' : 'text-muted')}>{formatTime(m.sentAt)}</p>
               </div>
             </div>
           );
@@ -174,24 +182,29 @@ export function ChatRoom({ otherId, other }: { otherId: string; other?: PublicUs
         <div ref={endRef} />
       </div>
 
-      <form onSubmit={(e) => void submit(e)} className="flex items-center gap-2 border-t border-line p-3">
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          maxLength={1000}
-          aria-label="Tulis pesan"
-          placeholder="Tulis pesan..."
-          className="h-10 min-w-0 flex-1 rounded-full border border-line bg-surface px-4 text-sm focus:border-accent focus:outline-none"
-        />
-        <button
-          type="submit"
-          aria-label="Kirim pesan"
-          disabled={!text.trim() || sending}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-white transition hover:brightness-95 disabled:opacity-50"
+      <div className="bg-surface px-4 pb-3.5 pt-2.5">
+        <form
+          onSubmit={(e) => void submit(e)}
+          className="flex items-center gap-2 rounded-full border-2 border-line/80 bg-bg/60 py-1 pl-4 pr-1.5 transition focus-within:border-accent focus-within:bg-surface focus-within:shadow-sm"
         >
-          {sending ? <Spinner className="h-4 w-4" /> : <Send size={16} />}
-        </button>
-      </form>
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={1000}
+            aria-label="Tulis pesan"
+            placeholder="Tulis pesan..."
+            className="h-9 min-w-0 flex-1 bg-transparent text-sm focus:outline-none"
+          />
+          <button
+            type="submit"
+            aria-label="Kirim pesan"
+            disabled={!text.trim() || sending}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-tactile-primary transition hover:brightness-105 active:translate-y-[1px] active:shadow-none disabled:opacity-45 disabled:shadow-none"
+          >
+            {sending ? <Spinner className="h-4 w-4" /> : <Send size={15} />}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

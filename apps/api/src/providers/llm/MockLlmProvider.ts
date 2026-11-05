@@ -1,5 +1,5 @@
 import { ChatParamsSchema, type ChatParams, type Destination } from '@kosmatch/shared';
-import type { LlmProvider } from './LlmProvider';
+import type { LlmProvider, RagContext } from './LlmProvider';
 
 const formatRp = (n: number) => `Rp${Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -14,11 +14,25 @@ const UNIT_MULTIPLIER: Record<string, number> = {
 };
 const RENT_THRESHOLD = 500_000;
 
+const FACILITY_EXTRACTORS: Array<{ pattern: RegExp; label: string }> = [
+  {
+    pattern: /\b(kamar mandi dal[ae]m|km dal[ae]m|k\.\s*mandi dal[ae]m|wc dal[ae]m|mandi sendiri|mandi di dal[ae]m)\b/i,
+    label: 'Kamar Mandi Dalam',
+  },
+  { pattern: /\b(ac|ber-ac|dingin)\b/i, label: 'AC' },
+  { pattern: /\b(wifi|wi-fi|internet|wfh)\b/i, label: 'WiFi' },
+  { pattern: /\b(parkir|parkiran|bawa motor|bawa mobil)\b/i, label: 'Parkir' },
+  { pattern: /\b(kasur|tempat tidur)\b/i, label: 'Kasur' },
+  { pattern: /\blemari\b/i, label: 'Lemari' },
+  { pattern: /\bmeja\b/i, label: 'Meja' },
+  { pattern: /\b(dapur|masak)\b/i, label: 'Dapur' },
+];
+
 function parseNumber(raw: string): number {
   return Number(raw.replace(',', '.'));
 }
 
-/** Rule-based (regex) parser. Deterministic, no network access. */
+/** Rule-based (regex) parser & RAG fallback composer. Deterministic, no network access. */
 export class MockLlmProvider implements LlmProvider {
   async extractParams(message: string, destinations: Destination[]): Promise<ChatParams> {
     const text = message.toLowerCase();
@@ -32,10 +46,42 @@ export class MockLlmProvider implements LlmProvider {
       work = work.replace(timeMatch[0], ' '.repeat(timeMatch[0].length));
     }
 
-    // 2. Money with units ("2 juta", "15rb", "10k").
+    // 2a. Budget range ("1-2 juta", "1 - 2 jt", "1 sampai 2 juta", "800rb - 1,5 juta").
+    const rangeRegex =
+      /(\d+(?:[.,]\d+)?)\s*(juta|jt|ribu|rb|k)?\s*(?:-|–|sampai|s\/d|sd|hingga)\s*(\d+(?:[.,]\d+)?)\s*(juta|jt|ribu|rb|k)\b/;
+    const rangeMatch = rangeRegex.exec(work);
+    if (rangeMatch) {
+      const [whole, lowRaw, lowUnit, highRaw, highUnit] = rangeMatch;
+      if (lowRaw && highRaw && highUnit) {
+        const effectiveLowUnit = lowUnit ?? highUnit;
+        const minVal = Math.round(parseNumber(lowRaw) * (UNIT_MULTIPLIER[effectiveLowUnit] ?? 1));
+        const maxVal = Math.round(parseNumber(highRaw) * (UNIT_MULTIPLIER[highUnit] ?? 1));
+        if (minVal > 0 && maxVal >= minVal) {
+          params.minBudgetMonthly = minVal;
+          params.maxBudgetMonthly = maxVal;
+          work = work.replace(whole, ' '.repeat(whole.length));
+        }
+      }
+    }
+
+    // 2b. Explicit minimum budget ("minimal 1 juta", "di atas 1,2 jt", "mulai 1 juta").
+    const minRegex = /(?:minimal|min|di atas|lebih dari|mulai dari|mulai)\s*(\d+(?:[.,]\d+)?)\s*(juta|jt|ribu|rb|k)\b/;
+    const minMatch = minRegex.exec(work);
+    if (minMatch) {
+      const [whole, num, unit] = minMatch;
+      if (num && unit) {
+        const val = Math.round(parseNumber(num) * (UNIT_MULTIPLIER[unit] ?? 1));
+        if (val >= 100_000) {
+          params.minBudgetMonthly ??= val;
+          work = work.replace(whole, ' '.repeat(whole.length));
+        }
+      }
+    }
+
+    // 2c. Money with units ("2 juta", "15rb", "10k").
     const unitRegex = /(\d+(?:[.,]\d+)?)\s*(juta|jt|ribu|rb|k)\b/g;
     let match: RegExpExecArray | null;
-    let rent: number | undefined;
+    let rent: number | undefined = params.maxBudgetMonthly;
     let cost: number | undefined;
     while ((match = unitRegex.exec(work)) !== null) {
       const [whole, num, unit] = match;
@@ -88,26 +134,59 @@ export class MockLlmProvider implements LlmProvider {
     else if (/\b(putri|cewek|perempuan|wanita)\b/.test(text)) params.tipe = 'putri';
     else if (/\bcampur\b/.test(text)) params.tipe = 'campur';
 
+    // 7. Required facilities ("kamar mandi dalam", "AC", "WiFi", etc.).
+    const foundFacilities: string[] = [];
+    for (const { pattern, label } of FACILITY_EXTRACTORS) {
+      if (pattern.test(text)) {
+        foundFacilities.push(label);
+      }
+    }
+    if (foundFacilities.length > 0) {
+      params.fasilitas = foundFacilities;
+    }
+
     return ChatParamsSchema.parse(params);
   }
 
-  async composeReply(params: ChatParams, resultCount: number): Promise<string> {
-    if (!params.destinationId && !params.maxBudgetMonthly) {
+  async composeReply(params: ChatParams, resultCount: number, context?: RagContext): Promise<string> {
+    if (!params.destinationId && !params.maxBudgetMonthly && !params.minBudgetMonthly) {
       return 'Mau ke kampus atau kantor mana, dan berapa budget sewa per bulan?';
     }
     const criteria: string[] = [];
-    if (params.maxBudgetMonthly) criteria.push(`budget maksimal ${formatRp(params.maxBudgetMonthly)}/bulan`);
+    if (context?.destination) {
+      criteria.push(`dekat ${context.destination.nama}`);
+    }
+    if (params.minBudgetMonthly && params.maxBudgetMonthly) {
+      criteria.push(`budget ${formatRp(params.minBudgetMonthly)}–${formatRp(params.maxBudgetMonthly)}/bulan`);
+    } else if (params.maxBudgetMonthly) {
+      criteria.push(`budget maksimal ${formatRp(params.maxBudgetMonthly)}/bulan`);
+    } else if (params.minBudgetMonthly) {
+      criteria.push(`budget minimal ${formatRp(params.minBudgetMonthly)}/bulan`);
+    }
     if (params.maxCommuteMin) criteria.push(`waktu tempuh maksimal ${params.maxCommuteMin} menit`);
     if (params.maxCommuteCostRp) {
       const mode = params.preferredMode === 'ojek' ? 'ojek' : 'biaya perjalanan';
       criteria.push(`${mode} di bawah ${formatRp(params.maxCommuteCostRp)}`);
     }
     if (params.tipe) criteria.push(`kos ${params.tipe}`);
+    if (params.fasilitas && params.fasilitas.length > 0) {
+      criteria.push(`fasilitas ${params.fasilitas.join(', ')}`);
+    }
     const suffix = criteria.length ? ` (${criteria.join(', ')})` : '';
 
     if (resultCount === 0) {
       return `Maaf, belum ada kos yang cocok dengan permintaanmu${suffix}. Coba naikkan budget, perpanjang waktu tempuh, atau pilih lokasi tujuan lain.`;
     }
+
+    // If retrieved context is available, include top recommendations directly in the reply without transport numbers
+    if (context?.results && context.results.length > 0) {
+      const highlights = context.results
+        .slice(0, 2)
+        .map((r) => `${r.kos.namaKos} (${formatRp(r.kos.hargaSewa)}/bln)`)
+        .join(' dan ');
+      return `Saya menemukan ${resultCount} kos yang cocok${suffix}, antara lain ${highlights}. Klik tombol "Lihat Estimasi Transportasi" pada kartu kos untuk mengecek Estimasi waktu dan biaya perjalanan.`;
+    }
+
     return `Saya menemukan ${resultCount} kos yang cocok${suffix}. Estimasi ini bersifat perkiraan, mohon verifikasi sebelum memutuskan.`;
   }
 }

@@ -15,8 +15,17 @@ export default {
         sukses: '#16A34A',
         bahaya: '#DC2626',
       },
-      borderRadius: { card: '16px' },
-      boxShadow: { card: '0 2px 12px rgba(48,56,65,0.08)' },
+      borderRadius: {
+        card: '28px',
+        pill: '9999px',
+      },
+      boxShadow: {
+        card: '0 8px 30px -4px rgba(48,56,65,0.06), 0 2px 6px -1px rgba(48,56,65,0.03)',
+        float: '0 12px 36px -6px rgba(48,56,65,0.10), 0 4px 12px -2px rgba(48,56,65,0.05)',
+        'tactile-primary': '0 4px 0 0 #C83E12, 0 8px 20px -4px rgba(255,87,34,0.35)',
+        'tactile-accent': '0 4px 0 0 #568588, 0 8px 20px -4px rgba(118,171,174,0.35)',
+        'tactile-ink': '0 4px 0 0 #1B2026',
+      },
       fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
       keyframes: {
         'slide-in-right': {

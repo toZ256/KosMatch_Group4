@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Destination, Kos } from '@kosmatch/shared';
 import { MockCommuteProvider, haversineKm } from './MockCommuteProvider';
+import { OsrmCommuteProvider } from './OsrmCommuteProvider';
 import { createCommuteProvider } from './index';
 
 const provider = new MockCommuteProvider();
@@ -73,7 +74,42 @@ describe('MockCommuteProvider', () => {
     expect(e.durationMin).toBe(Math.ceil((e.distanceKm / 22) * 60 - 1e-9));
   });
 
-  it('factory rejects non-mock', () => {
-    expect(() => createCommuteProvider(false)).toThrow('Provider belum diimplementasikan');
+  it('factory creates OsrmCommuteProvider and rejects unsupported providers', () => {
+    expect(createCommuteProvider(false)).toBeInstanceOf(OsrmCommuteProvider);
+    expect(createCommuteProvider('osrm')).toBeInstanceOf(OsrmCommuteProvider);
+    expect(() => createCommuteProvider('google')).toThrow('Provider belum diimplementasikan');
+  });
+});
+
+describe('OsrmCommuteProvider', () => {
+  it('computes commute estimates from OSRM driving route and caches repeated calls', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: 'Ok',
+        routes: [{ distance: 4200, duration: 900 }], // 4.2 km, 15 min driving
+      }),
+    });
+    const osrm = new OsrmCommuteProvider({ fetchFn: mockFetch as unknown as typeof fetch });
+    const first = await osrm.estimate(kosAt(-6.36, 106.82), dest(-6.365, 106.83));
+    const second = await osrm.estimate(kosAt(-6.36, 106.82), dest(-6.365, 106.83));
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(first).toEqual(second);
+    expect(first[0]).toMatchObject({
+      mode: 'ojek',
+      distanceKm: 4.2,
+      durationMin: 13, // ceil(15 * 0.85) = 13
+      costRp: 12500,
+      isEstimate: true,
+      source: 'mock',
+    });
+  });
+
+  it('falls back to MockCommuteProvider when OSRM fails or is offline', async () => {
+    const mockFetch = vi.fn().mockRejectedValue(new Error('network offline'));
+    const osrm = new OsrmCommuteProvider({ fetchFn: mockFetch as unknown as typeof fetch });
+    const res = await osrm.estimate(kosAt(-6.23, 106.83), dest(-6.2, 106.82));
+    const expected = await provider.estimate(kosAt(-6.23, 106.83), dest(-6.2, 106.82));
+    expect(res).toEqual(expected);
   });
 });

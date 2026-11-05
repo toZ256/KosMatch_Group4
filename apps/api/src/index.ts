@@ -9,8 +9,14 @@ import { attachSocket } from './socket';
 async function main() {
   const config = loadConfig();
   const repo = await createRepository(config.dataStore);
-  const llm = createLlmProvider(config.useMockAi);
-  const commute = createCommuteProvider(config.useMockAi);
+  const llm = createLlmProvider(config.useMockAi, {
+    baseUrl: config.llmBaseUrl,
+    apiKey: config.llmApiKey,
+    model: config.llmModel,
+  });
+  const commute = createCommuteProvider(config.commuteProvider, {
+    baseUrl: config.osrmBaseUrl,
+  });
 
   const { app, services } = createApp({
     repo,
@@ -28,7 +34,10 @@ async function main() {
   });
 
   server.listen(config.port, () => {
-    console.log(`[api] listening on http://localhost:${config.port} (ai=mock, data=${config.dataStore})`);
+    const aiMode = config.useMockAi ? 'mock' : `rag(${config.llmBaseUrl})`;
+    console.log(
+      `[api] listening on http://localhost:${config.port} (ai=${aiMode}, commute=${config.commuteProvider}, data=${config.dataStore})`,
+    );
   });
 }
 

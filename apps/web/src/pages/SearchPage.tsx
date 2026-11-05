@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { SearchX } from 'lucide-react';
 import { useDestinations, useKosList } from '../api/hooks';
@@ -11,10 +11,14 @@ import { Input, Select } from '../components/ui/Input';
 import { fastestCommute, formatRupiah } from '../lib/format';
 import { BUDGET_RANGES, MAX_PRICE_OPTIONS } from '../lib/search';
 
+const PAGE_SIZE = 24;
+
 export function SearchPage() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const { data: destinations = [] } = useDestinations();
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   const destinationId = params.get('destinationId') ?? '';
   const maxCommuteMin = Number(params.get('maxCommuteMin')) || undefined;
@@ -44,6 +48,30 @@ export function SearchPage() {
       }),
     [data, budget, destinationId, maxCommuteMin],
   );
+
+  // Reset pagination whenever filters change
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [destinationId, maxCommuteMin, budget?.value, maxPriceParam, tipe, q]);
+
+  const visibleResults = useMemo(() => results.slice(0, visibleCount), [results, visibleCount]);
+  const hasMore = visibleCount < results.length;
+
+  // Automatically load next batch when scrolling near the sentinel
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((c) => Math.min(c + PAGE_SIZE, results.length));
+        }
+      },
+      { rootMargin: '400px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, results.length]);
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -129,11 +157,23 @@ export function SearchPage() {
               action={<Button onClick={() => navigate('/cari')}>Atur Ulang Filter</Button>}
             />
           ) : (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-              {results.map((k) => (
-                <KosCard key={k.id} kos={k} commute={k.commute} destinationId={destinationId || undefined} />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                {visibleResults.map((k) => (
+                  <KosCard key={k.id} kos={k} commute={k.commute} destinationId={destinationId || undefined} />
+                ))}
+              </div>
+              {hasMore && (
+                <div ref={loadMoreRef} className="mt-8 flex flex-col items-center gap-2 py-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => setVisibleCount((c) => Math.min(c + PAGE_SIZE, results.length))}
+                  >
+                    Tampilkan Lebih Banyak ({results.length - visibleCount} kos lagi)
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </section>
       </div>

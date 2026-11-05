@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Bookmark } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Kos } from '@kosmatch/shared';
@@ -12,7 +13,7 @@ interface BookmarkButtonProps {
   variant?: 'icon' | 'labeled';
 }
 
-export function BookmarkButton({ kos, className, variant = 'icon' }: BookmarkButtonProps) {
+export const BookmarkButton = memo(function BookmarkButton({ kos, className, variant = 'icon' }: BookmarkButtonProps) {
   const token = useAuthStore((s) => s.token);
   const navigate = useNavigate();
   const location = useLocation();
@@ -64,4 +65,4 @@ export function BookmarkButton({ kos, className, variant = 'icon' }: BookmarkBut
       {icon}
     </button>
   );
-}
+});

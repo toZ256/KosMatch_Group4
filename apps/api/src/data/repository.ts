@@ -1,6 +1,7 @@
 import type { Bookmark, ChatHistory, Destination, Kos, User } from '@kosmatch/shared';
 
 export interface KosFilter {
+  minPrice?: number;
   maxPrice?: number;
   q?: string;
   tipe?: string;

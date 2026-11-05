@@ -5,6 +5,11 @@ export interface AppConfig {
   port: number;
   jwtSecret: string;
   useMockAi: boolean;
+  commuteProvider: string;
+  osrmBaseUrl: string;
+  llmBaseUrl: string;
+  llmApiKey: string;
+  llmModel: string;
   dataStore: string;
   corsOrigin: string;
 }
@@ -45,10 +50,16 @@ function loadDotenvFiles(): void {
 /** Reads configuration from environment variables (defaults are dev-friendly). */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   loadDotenvFiles();
+  const useMockAi = (env.USE_MOCK_AI ?? 'false') === 'true';
   return {
     port: Number(env.PORT ?? 4000),
     jwtSecret: env.JWT_SECRET ?? 'dev-secret-change-me',
-    useMockAi: (env.USE_MOCK_AI ?? 'true') === 'true',
+    useMockAi,
+    commuteProvider: env.COMMUTE_PROVIDER ?? (useMockAi ? 'mock' : 'osrm'),
+    osrmBaseUrl: env.OSRM_BASE_URL ?? 'https://router.project-osrm.org',
+    llmBaseUrl: env.LLM_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta',
+    llmApiKey: env.GEMINI_API_KEY ?? env.LLM_API_KEY ?? '',
+    llmModel: env.LLM_MODEL ?? 'gemini-2.5-flash',
     dataStore: env.DATA_STORE ?? (env.DATABASE_URL ? 'postgres' : 'memory'),
     corsOrigin: env.CORS_ORIGIN ?? 'http://localhost:5173',
   };
