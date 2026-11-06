@@ -1,9 +1,9 @@
 import { memo } from 'react';
 import { Link } from 'react-router-dom';
-import { MapPin, Star, Timer } from 'lucide-react';
+import { MapPin, Star } from 'lucide-react';
 import type { CommuteEstimate, Kos } from '@kosmatch/shared';
 import { BookmarkButton } from './BookmarkButton';
-import { MODE_LABELS, fastestCommute, formatRating, formatRupiah, photoGradient } from '../../lib/format';
+import { formatRating, formatRupiah, photoGradient } from '../../lib/format';
 import { Skeleton } from '../ui/Card';
 
 interface KosCardProps {
@@ -14,7 +14,8 @@ interface KosCardProps {
 }
 
 export const KosCard = memo(function KosCard({ kos, commute, destinationId }: KosCardProps) {
-  const best = fastestCommute(commute);
+  const ojek = commute?.find((c) => c.mode === 'ojek');
+  const transit = commute?.find((c) => c.mode === 'transit');
   const to = destinationId ? `/kos/${kos.id}?destinationId=${destinationId}` : `/kos/${kos.id}`;
   return (
     <article className="kos-card-item group relative overflow-hidden rounded-[28px] border border-line/70 bg-surface p-2.5 shadow-card transition-[transform,box-shadow] duration-150 hover:-translate-y-1 hover:border-accent/40 hover:shadow-float">
@@ -24,8 +25,8 @@ export const KosCard = memo(function KosCard({ kos, commute, destinationId }: Ko
           style={{ background: photoGradient(kos.fotoColor) }}
         >
           <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-surface/95 px-2.5 py-1 text-[11px] font-bold text-ink shadow-sm">
-            {best ? <Timer size={11} className="text-accent" /> : <Star size={11} className="fill-primary text-primary" />}
-            {best ? `${best.durationMin} mnt` : formatRating(kos.rating)}
+            <Star size={11} className="fill-primary text-primary" />
+            {formatRating(kos.rating)}
           </span>
         </div>
         <div className="space-y-1.5 px-2 pb-2 pt-3.5">
@@ -34,10 +35,25 @@ export const KosCard = memo(function KosCard({ kos, commute, destinationId }: Ko
             <MapPin size={12} className="shrink-0 text-accent" />
             <span className="truncate">{kos.area}</span>
           </p>
-          {best && (
-            <p className="inline-block rounded-full bg-bg px-2.5 py-0.5 text-[11px] font-medium text-ink">
-              Estimasi {MODE_LABELS[best.mode]}: {best.durationMin} mnt · {best.costRp === 0 ? 'Gratis' : formatRupiah(best.costRp)}
-            </p>
+          {commute && commute.length > 0 && (
+            <div className="space-y-1 pt-0.5 text-[11px]">
+              {ojek && (
+                <p className="flex items-center justify-between rounded-full bg-bg px-2.5 py-0.5 font-medium text-ink">
+                  <span className="text-muted">Estimasi Ojek:</span>
+                  <span>
+                    {ojek.durationMin} mnt · {formatRupiah(ojek.costRp)}
+                  </span>
+                </p>
+              )}
+              {transit && (
+                <p className="flex items-center justify-between rounded-full bg-bg px-2.5 py-0.5 font-medium text-ink">
+                  <span className="text-muted">Estimasi Kereta:</span>
+                  <span>
+                    {transit.durationMin} mnt · {formatRupiah(transit.costRp)}
+                  </span>
+                </p>
+              )}
+            </div>
           )}
           <p className="pt-1">
             <span className="text-base font-extrabold text-primary">{formatRupiah(kos.hargaSewa)}</span>{' '}
