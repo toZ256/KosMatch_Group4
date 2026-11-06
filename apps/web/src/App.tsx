@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from './components/layout/AppLayout';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
 import { LandingPage } from './pages/LandingPage';
@@ -25,6 +25,7 @@ export function App() {
           {/* Tenant protected routes */}
           <Route element={<ProtectedRoute />}>
             <Route path="tersimpan" element={<BookmarkPage />} />
+            <Route path="bookmark" element={<Navigate to="/tersimpan" replace />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="chat/:userId" element={<ChatPage />} />
           </Route>
