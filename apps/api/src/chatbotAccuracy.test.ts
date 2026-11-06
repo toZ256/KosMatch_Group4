@@ -233,13 +233,27 @@ describe('AI Chatbot QA Accuracy Test Suite', () => {
       expect(data.reply).toMatch(/Mau ke kampus atau kantor mana|Silakan beri tahu/i);
     });
 
-    it('reports noResults: true gracefully for unrealistic budget without error', async () => {
+    it('applies fallback strategy gracefully for unrealistic budget without 0 results', async () => {
       const res = await ask('kos 50 ribu di SCBD');
       expect(res.status).toBe(200);
       const data = res.body.data;
-      expect(data.noResults).toBe(true);
-      expect(data.results).toEqual([]);
-      expect(data.reply).toMatch(/tidak menemukan|belum ada/i);
+      expect(data.isFallback).toBe(true);
+      expect(data.fallbackReason).toBe('budget_terlalu_rendah');
+      expect(data.results.length).toBeGreaterThan(0);
+      expect(data.reply).toMatch(/tidak menemukan|budget|alternatif/i);
+    });
+
+    it('strictly isolates out-of-scope requests in schema extraction', async () => {
+      const params = await llm.extractParams('kos dekat UI ada bioskop pribadi, helipad, dan PS5 budget 2 jt', destinations);
+      expect(params.destinationId).toBe('universitas-indonesia');
+      expect(params.maxBudgetMonthly).toBe(2_000_000);
+      expect(params.unsupportedRequests).toContain('Bioskop Pribadi');
+      expect(params.unsupportedRequests).toContain('Helipad');
+      expect(params.unsupportedRequests).toContain('PS5');
+      // Must not be added to standard fasilitas
+      expect(params.fasilitas?.includes('Bioskop Pribadi')).toBeFalsy();
+      expect(params.fasilitas?.includes('Helipad')).toBeFalsy();
+      expect(params.fasilitas?.includes('PS5')).toBeFalsy();
     });
   });
 });

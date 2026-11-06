@@ -136,6 +136,7 @@ export const ChatParamsSchema = z.object({
   fasilitas: z.array(z.string()).optional(),
   areaKeywords: z.array(z.string()).optional(),
   listrikTermasuk: z.boolean().optional(),
+  unsupportedRequests: z.array(z.string()).optional(),
 });
 
 export const BookmarkInputSchema = z.object({ kosId: z.string().min(1) });

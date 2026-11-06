@@ -68,6 +68,9 @@ export function ChatbotOverlay() {
         results: res.results,
         noResults: res.noResults,
         destinationId: res.params.destinationId,
+        isFallback: res.isFallback,
+        fallbackReason: res.fallbackReason,
+        unsupportedRequests: res.unsupportedRequests,
       });
     } catch (e) {
       toast.error(errorMessage(e));
@@ -143,7 +146,18 @@ export function ChatbotOverlay() {
             <div key={m.id} className="space-y-2.5">
               <MessageBubble role={m.role}>
                 {m.noResults && <strong className="mb-1 block text-sm">Kos Tidak Ditemukan</strong>}
-                {m.text}
+                {m.isFallback && (
+                  <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-accent/15 px-2.5 py-0.5 text-[10px] font-bold text-accent">
+                    <span>💡 Opsi Alternatif Terbaik</span>
+                  </div>
+                )}
+                {m.unsupportedRequests && m.unsupportedRequests.length > 0 && (
+                  <div className="mb-1.5 rounded-xl border border-line bg-bg/50 p-2 text-[10px] text-muted">
+                    <span className="font-semibold text-ink">Catatan:</span> Permintaan fasilitas{' '}
+                    <span className="italic font-medium text-ink">{m.unsupportedRequests.join(', ')}</span> tidak termasuk dalam fasilitas standar kos kami.
+                  </div>
+                )}
+                <div>{m.text}</div>
               </MessageBubble>
               {m.results?.map((r) => (
                 <ResultCard key={r.kos.id} item={r} destinationId={m.destinationId} onNavigate={closePanel} />
