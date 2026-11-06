@@ -8,7 +8,7 @@ const formatRp = (n: number) => `Rp${Math.round(n).toString().replace(/\B(?=(\d{
 
 const GOOGLE_AI_STUDIO_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const VERTEX_EXPRESS_BASE_URL = 'https://aiplatform.googleapis.com/v1/publishers/google';
-const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 export interface RagLlmOptions {
   /** Base URL (defaults to Google AI Studio: https://generativelanguage.googleapis.com/v1beta) */
@@ -46,6 +46,45 @@ interface ModelsListPayload {
     id?: string;
   }>;
 }
+
+function toTitleCase(s: string): string {
+  return s
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
+const STANDARD_FACILITY_MAP: Record<string, string> = {
+  'kamar mandi dalam': 'Kamar Mandi Dalam',
+  'km dalam': 'Kamar Mandi Dalam',
+  'wc dalam': 'Kamar Mandi Dalam',
+  'mandi sendiri': 'Kamar Mandi Dalam',
+  'ac': 'AC',
+  'ber-ac': 'AC',
+  'dingin': 'AC',
+  'wifi': 'WiFi',
+  'wi-fi': 'WiFi',
+  'internet': 'WiFi',
+  'kasur': 'Kasur',
+  'tempat tidur': 'Kasur',
+  'lemari': 'Lemari',
+  'lemari baju': 'Lemari',
+  'meja': 'Meja',
+  'meja belajar': 'Meja',
+  'meja kerja': 'Meja',
+  'dapur': 'Dapur',
+  'dapur bersama': 'Dapur',
+  'bisa masak': 'Dapur',
+  'parkir': 'Parkir',
+  'parkiran': 'Parkir',
+  'kulkas': 'Kulkas',
+  'tv': 'TV',
+  'laundry': 'Laundry',
+  'cctv': 'CCTV',
+  'kloset duduk': 'Kloset Duduk',
+  'shower': 'Shower',
+  'air panas': 'Air Panas',
+};
 
 const GREETING_ONLY = /^(halo|hai|hi|hello|pagi|siang|sore|malam|permisi|tes|test|ping|p)\b[!.?\s]*$/i;
 
@@ -278,35 +317,34 @@ export class RagLlmProvider implements LlmProvider {
       .join('\n');
 
     const systemPrompt = [
-      'Kamu adalah AI Query Planner & Filter Extractor untuk database pencarian kos KosMatch Jakarta.',
-      'Pengguna bisa berbicara dengan bahasa sehari-hari/gaul/bebas ("asal ngomong"). Tugasmu adalah memahami maksud mereka dan menerjemahkannya menjadi filter JSON yang presisi untuk query database PostgreSQL.',
+      'Kamu adalah AI Semantic Slot Extractor untuk aplikasi pencarian kos KosMatch.',
+      'Tugasmu adalah membaca kalimat pengguna dan memecahnya ke dalam kategori semantik apa adanya TANPA MEMAKSAKAN atau MENYAMARATAKAN nama fasilitas dan destinasi:',
       '',
-      'Daftar destinasi kampus/kantor/stasiun di database:',
-      destCatalog,
+      'Kategori yang harus diekstrak:',
+      '1. "destination": nama tempat/kampus/stasiun/kantor yang disebut (contoh: "itb", "binus", "paramadina", "stasiun sudirman"). Isi null jika tidak ada.',
+      '2. "area": nama kota/daerah jika disebut (contoh: "tambun", "depok", "jakarta selatan"). Isi null jika tidak ada.',
+      '3. "minBudgetMonthly": angka batas bawah sewa bulanan dalam Rupiah, atau null.',
+      '4. "maxBudgetMonthly": angka batas atas sewa bulanan dalam Rupiah, atau null.',
+      '5. "maxCommuteMin": angka menit waktu perjalanan maksimal, atau null.',
+      '6. "maxCommuteCostRp": angka rupiah ongkos transportasi maksimal, atau null.',
+      '7. "preferredMode": "ojek" | "transit" | "jalan_kaki" | null.',
+      '8. "tipe": "putra" | "putri" | "campur" | null.',
+      '9. "rawFacilities": array string berisi SEMUA fasilitas atau benda yang diminta pengguna apa adanya dalam bentuk frasa utuh (contoh: ["meja makan"], ["ac"], ["kamar mandi dalam"], ["kursi pijet"], ["kolam renang pribadi"], ["wifi"]).',
+      '   PERHATIAN KETAT: JANGAN PERNAH memotong frasa majemuk menjadi kata tunggal! Contoh: "meja makan" diekstrak sebagai "meja makan" (BUKAN "meja"!), "kursi pijat" diekstrak sebagai "kursi pijat" (BUKAN "kursi"!).',
+      '10. "listrikTermasuk": boolean (true jika user minta harga sudah termasuk listrik / free listrik), atau null.',
       '',
-      'Daftar nama fasilitas standar di database (terjemahkan bahasa pengguna ke istilah ini):',
-      '- "Kamar Mandi Dalam" (jika user minta km dalam/dalem, wc sendiri, tidak mau antri mandi luar, privasi mandi)',
-      '- "AC" (jika user minta ac, dingin, anti gerah/panas)',
-      '- "WiFi" (jika user minta wifi, internet kenceng, buat wfh/zoom/kuliah online)',
-      '- "Kasur" (jika user minta sudah ada kasur/tempat tidur/full furnished)',
-      '- "Lemari" (jika user minta lemari baju)',
-      '- "Meja" (jika user minta meja belajar/kerja)',
-      '- "Dapur" (jika user minta bisa masak/dapur)',
-      '- "Parkir" (jika user bawa motor/mobil/butuh parkiran)',
-      '- "Kulkas", "TV", "Laundry", "CCTV", "Kloset Duduk", "Shower", "Air panas"',
-      '',
-      'Kembalikan HANYA objek JSON murni (tanpa markdown) dengan skema berikut (isi hanya yang relevan):',
+      'Kembalikan HANYA JSON murni (tanpa markdown ```json):',
       '{',
-      '  "destinationId": string (id dari daftar destinasi di atas jika relevan),',
-      '  "minBudgetMonthly": number (batas bawah harga sewa per bulan dalam Rupiah, misal 1000000),',
-      '  "maxBudgetMonthly": number (batas atas harga sewa per bulan dalam Rupiah, misal 2000000),',
-      '  "maxCommuteMin": number (maksimal waktu perjalanan dalam menit),',
-      '  "maxCommuteCostRp": number (maksimal ongkos transportasi sekali jalan dalam Rupiah),',
-      '  "preferredMode": "ojek" | "transit" | "jalan_kaki",',
-      '  "tipe": "putra" | "putri" | "campur",',
-      '  "fasilitas": string[] (daftar fasilitas standar yang diminta/tersirat oleh user),',
-      '  "areaKeywords": string[] (nama daerah/kecamatan/kota yang disebut atau dekat tujuan, misal ["Depok", "Beji"] untuk UI),',
-      '  "listrikTermasuk": boolean (true jika user minta harga sudah termasuk listrik / free listrik)',
+      '  "destination": string | null,',
+      '  "area": string | null,',
+      '  "minBudgetMonthly": number | null,',
+      '  "maxBudgetMonthly": number | null,',
+      '  "maxCommuteMin": number | null,',
+      '  "maxCommuteCostRp": number | null,',
+      '  "preferredMode": "ojek" | "transit" | "jalan_kaki" | null,',
+      '  "tipe": "putra" | "putri" | "campur" | null,',
+      '  "rawFacilities": string[],',
+      '  "listrikTermasuk": boolean | null',
       '}',
     ].join('\n');
 
@@ -317,18 +355,40 @@ export class RagLlmProvider implements LlmProvider {
       const jsonMatch = /\{[\s\S]*\}/.exec(raw);
       if (!jsonMatch) return ruleParams;
       const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-      const validDestIds = new Set(destinations.map((d) => d.id));
 
       const candidate: Record<string, unknown> = { ...ruleParams };
-      if (typeof parsed.destinationId === 'string' && validDestIds.has(parsed.destinationId)) {
-        candidate.destinationId = parsed.destinationId;
+      const oosItems: string[] = [...(ruleParams.unsupportedRequests ?? [])];
+
+      // Stage 2: Deterministic Schema Validation & Gatekeeping
+      // 1. Destination validation against 11 catalog destinations
+      const rawDest = typeof parsed.destination === 'string' && parsed.destination.trim().length > 0 ? parsed.destination.trim() : null;
+      if (rawDest) {
+        const destLower = rawDest.toLowerCase();
+        const matched = destinations.find((d) => {
+          const id = d.id.toLowerCase();
+          const name = d.nama.toLowerCase();
+          return id === destLower || name.includes(destLower) || d.aliases.some((a) => a.toLowerCase() === destLower || destLower.includes(a.toLowerCase()));
+        });
+        if (matched) {
+          candidate.destinationId = matched.id;
+        } else {
+          // Destination is not in standard 11 catalog -> Out-of-Scope Destination!
+          const label = rawDest.length <= 4 ? rawDest.toUpperCase() : toTitleCase(rawDest);
+          const fullLabel = label.startsWith('Kampus ') || label.startsWith('Stasiun ') || label.startsWith('Titik ') ? label : `Kampus/Titik ${label}`;
+          if (!oosItems.includes(fullLabel)) oosItems.push(fullLabel);
+          delete candidate.destinationId;
+        }
       }
+
+      // 2. Budget validation: AI extraction takes precedence over fallback regex
       if (typeof parsed.minBudgetMonthly === 'number' && parsed.minBudgetMonthly > 0) {
-        candidate.minBudgetMonthly = ruleParams.minBudgetMonthly ?? parsed.minBudgetMonthly;
+        candidate.minBudgetMonthly = parsed.minBudgetMonthly;
       }
       if (typeof parsed.maxBudgetMonthly === 'number' && parsed.maxBudgetMonthly > 0) {
-        candidate.maxBudgetMonthly = ruleParams.maxBudgetMonthly ?? parsed.maxBudgetMonthly;
+        candidate.maxBudgetMonthly = parsed.maxBudgetMonthly;
       }
+
+      // 3. Commute validation
       if (typeof parsed.maxCommuteMin === 'number' && parsed.maxCommuteMin > 0) {
         candidate.maxCommuteMin = parsed.maxCommuteMin;
       }
@@ -342,20 +402,48 @@ export class RagLlmProvider implements LlmProvider {
       ) {
         candidate.preferredMode = parsed.preferredMode;
       }
+
+      // 4. Type / Gender validation
       if (parsed.tipe === 'putra' || parsed.tipe === 'putri' || parsed.tipe === 'campur') {
         candidate.tipe = parsed.tipe;
       }
-      if (Array.isArray(parsed.fasilitas)) {
-        const llmFacilities = parsed.fasilitas.filter((f): f is string => typeof f === 'string' && f.trim().length > 0);
-        const merged = Array.from(new Set([...(ruleParams.fasilitas ?? []), ...llmFacilities]));
-        if (merged.length > 0) candidate.fasilitas = merged;
+
+      // 5. Facilities validation: Strictly cross-check against STANDARD_FACILITY_MAP
+      const rawFacs = Array.isArray(parsed.rawFacilities)
+        ? (parsed.rawFacilities as unknown[]).filter((f): f is string => typeof f === 'string')
+        : Array.isArray(parsed.fasilitas)
+          ? (parsed.fasilitas as unknown[]).filter((f): f is string => typeof f === 'string')
+          : [];
+
+      const validFacilities: string[] = [];
+      for (const item of rawFacs) {
+        const clean = item.trim().toLowerCase();
+        if (STANDARD_FACILITY_MAP[clean]) {
+          validFacilities.push(STANDARD_FACILITY_MAP[clean]);
+        } else {
+          // Compound facility or non-standard facility -> Isolate into unsupportedRequests!
+          const label = toTitleCase(item.trim());
+          if (!oosItems.includes(label)) oosItems.push(label);
+        }
       }
-      if (Array.isArray(parsed.areaKeywords)) {
-        const areas = parsed.areaKeywords.filter((a): a is string => typeof a === 'string' && a.trim().length > 0);
-        if (areas.length > 0) candidate.areaKeywords = areas;
+      const mergedFacs = Array.from(new Set([...(ruleParams.fasilitas ?? []), ...validFacilities]));
+      if (mergedFacs.length > 0) {
+        candidate.fasilitas = mergedFacs;
+      } else {
+        delete candidate.fasilitas;
       }
+
+      // 6. Area keywords validation
+      if (typeof parsed.area === 'string' && parsed.area.trim().length > 0) {
+        candidate.areaKeywords = Array.from(new Set([...(ruleParams.areaKeywords ?? []), toTitleCase(parsed.area.trim())]));
+      }
+
       if (typeof parsed.listrikTermasuk === 'boolean') {
         candidate.listrikTermasuk = parsed.listrikTermasuk;
+      }
+
+      if (oosItems.length > 0) {
+        candidate.unsupportedRequests = oosItems;
       }
 
       const validated = ChatParamsSchema.safeParse(candidate);
@@ -382,7 +470,8 @@ export class RagLlmProvider implements LlmProvider {
       !params.maxBudgetMonthly &&
       !params.minBudgetMonthly &&
       (!params.fasilitas || params.fasilitas.length === 0) &&
-      (!params.areaKeywords || params.areaKeywords.length === 0)
+      (!params.areaKeywords || params.areaKeywords.length === 0) &&
+      (!params.unsupportedRequests || params.unsupportedRequests.length === 0)
     ) {
       return this.fallback.composeReply(params, resultCount, context);
     }
@@ -391,11 +480,26 @@ export class RagLlmProvider implements LlmProvider {
     }
 
     const ragDocs = this.formatRetrievedContext(context.results);
-    const systemPrompt = [
+    const systemPromptLines = [
       'Kamu adalah Asisten AI KosMatch Jakarta. Jawab singkat (maksimal 2-3 kalimat), ramah, dalam Bahasa Indonesia.',
       'Sebutkan 1-2 kos terbaik dari DATA KOS di bawah beserta harga dan fasilitas utamanya yang cocok dengan permintaan pengguna.',
       'Jangan mengarang data di luar daftar. Beritahu pengguna bahwa mereka bisa menekan tombol "Lihat Estimasi Transportasi" pada kartu kos untuk mengecek Estimasi waktu dan ongkos perjalanan.',
-    ].join('\n');
+    ];
+
+    if (context?.isFallback) {
+      systemPromptLines.push(
+        'PERHATIAN STRATEGI FALLBACK / TRADE-OFF: Kriteria asli pengguna tidak dapat dipenuhi persis (misal budget terlalu rendah). DATA KOS DI BAWAH ADALAH ALTERNATIF TERDEKAT/PILIHAN LAIN.',
+        'Jelaskan dengan jujur dan sopan mengapa kriteria asli tidak terpenuhi, lalu tawarkan opsi alternatif terdekat ini secara solutif.',
+      );
+    }
+
+    if (context?.unsupportedRequests && context.unsupportedRequests.length > 0) {
+      systemPromptLines.push(
+        `PERHATIAN OUT-OF-SCOPE: Pengguna meminta fasilitas atau hal yang tidak didukung sistem (${context.unsupportedRequests.join(', ')}). Sampaikan secara singkat dan sopan bahwa fitur tersebut tidak tersedia di database kos.`,
+      );
+    }
+
+    const systemPrompt = systemPromptLines.join('\n');
 
     const userPrompt = [
       `Permintaan: "${context.message ?? 'Rekomendasi kos'}"`,

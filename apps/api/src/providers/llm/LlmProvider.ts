@@ -4,6 +4,9 @@ export interface RagContext {
   message?: string;
   results?: ChatbotResultItem[];
   destination?: Destination | null;
+  isFallback?: boolean;
+  fallbackReason?: string;
+  unsupportedRequests?: string[];
 }
 
 /** Turns natural language into search params and composes replies. Services depend on this only. */

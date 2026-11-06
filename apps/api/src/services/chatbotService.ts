@@ -154,13 +154,34 @@ export class ChatbotService {
         params.maxBudgetMonthly ||
         params.minBudgetMonthly ||
         (params.fasilitas && params.fasilitas.length > 0) ||
-        (params.areaKeywords && params.areaKeywords.length > 0),
+        (params.areaKeywords && params.areaKeywords.length > 0) ||
+        (params.unsupportedRequests && params.unsupportedRequests.length > 0),
     );
 
     // Not enough information: ask for clarification (not an error).
     if (!hasAnyCriteria) {
       return {
         reply: await this.llm.composeReply(params, 0, { message, results: [], destination: null }),
+        params,
+        results: [],
+        noResults: false,
+      };
+    }
+
+    const hasUnsupportedDest = params.unsupportedRequests?.some(
+      (u) => u.startsWith('Kampus ') || u.startsWith('Titik ') || u.startsWith('Universitas ') || u.includes('Institute'),
+    );
+
+    // If user asked for an unregistered campus/destination and gave no valid area in Jabodetabek:
+    // Do not guess or pick random kos from across the region. Explain directly that it is not registered.
+    if (hasUnsupportedDest && !params.destinationId && (!params.areaKeywords || params.areaKeywords.length === 0)) {
+      return {
+        reply: await this.llm.composeReply(params, 0, {
+          message,
+          results: [],
+          destination: null,
+          unsupportedRequests: params.unsupportedRequests,
+        }),
         params,
         results: [],
         noResults: false,
@@ -193,13 +214,48 @@ export class ChatbotService {
     });
 
     const dest = params.destinationId ? await this.repo.destinations.get(params.destinationId) : null;
-    const candidates = selectTopCandidates(
-      filteredKosList,
-      dest,
-      message,
-      MAX_COMMUTE_CANDIDATES,
-      params.areaKeywords,
-    );
+
+    let isFallback = false;
+    let fallbackReason: string | undefined;
+    let candidates: Kos[] = [];
+
+    if (filteredKosList.length > 0) {
+      candidates = selectTopCandidates(
+        filteredKosList,
+        dest,
+        message,
+        MAX_COMMUTE_CANDIDATES,
+        params.areaKeywords,
+      );
+    } else {
+      // 3. Fallback Strategy: Never leave an empty screen (0 results).
+      // Automatically relax criteria to find nearest/most affordable alternatives.
+      isFallback = true;
+      if (params.maxBudgetMonthly) {
+        fallbackReason = 'budget_terlalu_rendah';
+      } else if (params.fasilitas && params.fasilitas.length > 0) {
+        fallbackReason = 'fasilitas_terlalu_ketat';
+      } else if (params.maxCommuteMin) {
+        fallbackReason = 'waktu_tempuh_terlalu_singkat';
+      } else if (params.areaKeywords && params.areaKeywords.length > 0) {
+        fallbackReason = 'area_belum_tersedia';
+      } else {
+        fallbackReason = 'kriteria_terlalu_ketat';
+      }
+
+      // Fetch all kos matching type (or all if not specified)
+      const allKos = await this.repo.kos.list({ tipe: params.tipe });
+      const alternatives = [...allKos].sort((a, b) => {
+        if (dest) {
+          const distA = haversineKm(a.latitude, a.longitude, dest.latitude, dest.longitude);
+          const distB = haversineKm(b.latitude, b.longitude, dest.latitude, dest.longitude);
+          return distA - distB || a.hargaSewa - b.hargaSewa;
+        }
+        return a.hargaSewa - b.hargaSewa || b.rating - a.rating;
+      });
+
+      candidates = alternatives.slice(0, MAX_COMMUTE_CANDIDATES);
+    }
 
     // Evaluate commute in parallel (Promise.all) instead of sequentially so response is fast (<1.5s)
     const evaluated = await Promise.all(
@@ -212,11 +268,14 @@ export class ChatbotService {
           };
         }
         const estimates = await this.commute.estimate(kos, dest, params.preferredMode);
-        const matching = estimates.filter(
-          (e: CommuteEstimate) =>
-            (params.maxCommuteMin === undefined || e.durationMin <= params.maxCommuteMin) &&
-            (params.maxCommuteCostRp === undefined || e.costRp <= params.maxCommuteCostRp),
-        );
+        // In fallback mode, provide all valid routes without eliminating candidates
+        const matching = isFallback
+          ? estimates
+          : estimates.filter(
+              (e: CommuteEstimate) =>
+                (params.maxCommuteMin === undefined || e.durationMin <= params.maxCommuteMin) &&
+                (params.maxCommuteCostRp === undefined || e.costRp <= params.maxCommuteCostRp),
+            );
         if (matching.length === 0) return null;
         matching.sort((a, b) => a.durationMin - b.durationMin);
         const best = matching[0];
@@ -231,11 +290,24 @@ export class ChatbotService {
     const scored = evaluated.filter((x): x is { item: ChatbotResultItem; score: number } => x !== null);
     scored.sort((a, b) => a.score - b.score);
     const results = scored.slice(0, CHATBOT_MAX_RESULTS).map((s) => s.item);
+
+    const reply = await this.llm.composeReply(params, results.length, {
+      message,
+      results,
+      destination: dest,
+      isFallback,
+      fallbackReason,
+      unsupportedRequests: params.unsupportedRequests,
+    });
+
     return {
-      reply: await this.llm.composeReply(params, results.length, { message, results, destination: dest }),
+      reply,
       params,
       results,
       noResults: results.length === 0,
+      isFallback,
+      fallbackReason,
+      unsupportedRequests: params.unsupportedRequests,
     };
   }
 }

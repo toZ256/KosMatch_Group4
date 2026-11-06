@@ -68,6 +68,9 @@ export interface ChatbotResponse {
   params: ChatParams;
   results: ChatbotResultItem[];
   noResults: boolean;
+  isFallback?: boolean;
+  fallbackReason?: string;
+  unsupportedRequests?: string[];
 }
 
 export interface ConversationSummary {
