@@ -312,7 +312,7 @@ export class RagLlmProvider implements LlmProvider {
       return ruleParams;
     }
 
-    const destCatalog = destinations
+    const _destCatalog = destinations
       .map((d) => `- id: "${d.id}" | nama: "${d.nama}" | kategori: ${d.kategori} | alias: [${d.aliases.join(', ')}]`)
       .join('\n');
 
