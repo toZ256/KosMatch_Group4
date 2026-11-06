@@ -13,7 +13,11 @@ export class ApiError extends Error {
   }
 }
 
-export const http = axios.create({ baseURL: '/api', timeout: 30000 });
+const apiOrigin = import.meta.env.VITE_API_BASE_URL
+  ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/+$/, '')
+  : '';
+
+export const http = axios.create({ baseURL: `${apiOrigin}/api`, timeout: 30000 });
 
 http.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token;

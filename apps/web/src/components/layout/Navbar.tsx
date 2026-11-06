@@ -12,7 +12,7 @@ import { cn } from '../../lib/cn';
 const LINKS = [
   { to: '/', label: 'Beranda', end: true },
   { to: '/cari', label: 'Cari Kos' },
-  { to: '/bookmark', label: 'Tersimpan' },
+  { to: '/tersimpan', label: 'Tersimpan' },
   { to: '/notifikasi', label: 'Notifikasi' },
 ];
 

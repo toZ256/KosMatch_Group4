@@ -9,6 +9,9 @@ export interface BotMessage {
   noResults?: boolean;
   destinationId?: string;
   isError?: boolean;
+  isFallback?: boolean;
+  fallbackReason?: string;
+  unsupportedRequests?: string[];
 }
 
 export const GREETING: BotMessage = {

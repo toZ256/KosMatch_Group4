@@ -8,7 +8,7 @@ generator client {
 }
 
 model Kos {
-  id                String   @id
+  id                String     @id
   namaKos           String
   area              String
   region            String
@@ -17,19 +17,20 @@ model Kos {
   hargaSewa         Int
   fasilitas         String
   rating            Float?
-  jumlahUlasan      Int?     @default(0)
-  transaksiBerhasil Int?     @default(0)
+  jumlahUlasan      Int?       @default(0)
+  transaksiBerhasil Int?       @default(0)
   luasM2            Float?
-  listrikTermasuk   Boolean  @default(false)
+  listrikTermasuk   Boolean    @default(false)
   sisaKamar         Float?
   deskripsi         String?
   lat               Float
   lng               Float
-  dalamJakarta      Boolean  @default(true)
-  fotoColor         String?  @default("#B8C4D6")
-  ownerId           String?  @default("owner-bu-sari")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  dalamJakarta      Boolean    @default(true)
+  fotoColor         String?    @default("#B8C4D6")
+  ownerId           String?    @default("owner-bu-sari")
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  bookmarks         Bookmark[]
 
   @@index([area])
   @@index([hargaSewa])
@@ -39,13 +40,14 @@ model Kos {
 }
 
 model User {
-  id           String   @id @default(uuid())
+  id           String     @id @default(uuid())
   nama         String
-  email        String   @unique
+  email        String     @unique
   passwordHash String
-  role         String   @default("tenant")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  role         String     @default("tenant")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  bookmarks    Bookmark[]
 }
 
 model Destination {
@@ -65,8 +67,12 @@ model Bookmark {
   kosId     String
   createdAt DateTime @default(now())
 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kos  Kos  @relation(fields: [kosId], references: [id], onDelete: Cascade)
+
   @@unique([userId, kosId])
   @@index([userId])
+  @@index([kosId])
 }
 
 model ChatHistory {

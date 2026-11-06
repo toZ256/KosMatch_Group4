@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { Kos } from '@kosmatch/shared';
 import { useBookmarks, useToggleBookmark } from '../../api/hooks';
 import { useAuthStore } from '../../stores/authStore';
+import { toast } from '../../stores/toastStore';
 import { cn } from '../../lib/cn';
 
 interface BookmarkButtonProps {
@@ -25,6 +26,7 @@ export const BookmarkButton = memo(function BookmarkButton({ kos, className, var
     e.preventDefault();
     e.stopPropagation();
     if (!token) {
+      toast.info('Silakan masuk terlebih dahulu untuk menyimpan kos');
       navigate(`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`);
       return;
     }
