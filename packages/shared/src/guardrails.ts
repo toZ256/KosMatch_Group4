@@ -37,6 +37,11 @@ const OUT_OF_SCOPE_PATTERNS: RegExp[] = [
   /\b(tugas\s+(?:kuliah|sekolah|matematika|fisika|kimia|biologi)|hitung(?:lah)?\s+(?:integral|turunan|matriks|determinan|persamaan\s+kuadrat|limit\s+fungsi|faktorial)|rumus\s+(?:fisika|kimia|matematika|relativitas|pythagoras|kuadrat)|kerjakan\s+soal\s+(?:matematika|fisika)|buatkan\s+(?:makalah|esai|skripsi|puisi|cerpen|pantun|lirik\s+lagu))\b/i,
   /(?:\b(?:kerjakan|hitung(?:lah|kan)?|berapa(?:\s+hasil(?:\s+dari)?)?|jawab(?:lah)?|selesaikan)\s+)?\b\d+\s*[+*^×÷]\s*\d+\b/i,
   /\b(?:kerjakan|hitung(?:lah|kan)?|berapa(?:\s+hasil(?:\s+dari)?)?|selesaikan)\s+\d+\s*[+\-*/^×÷]\s*\d+\b/i,
+  // Word-based arithmetic (e.g. "satu tambah satu berapa?", "dua kali tiga", "sepuluh dibagi dua")
+  /\b(?:satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|\d+)\s*(?:tambah|kurang|kali|bagi)\s*(?:satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|\d+)(?:\s*(?:berapa|hasilnya|sama\s*dengan|\?))?\b/i,
+  /\b(?:berapa\s+hasil\s+(?:dari\s+)?|hitung(?:kan)?\s+)(?:satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|\d+)\b/i,
+  // General knowledge / non-kos trivia questions without kos context
+  /\b(siapa\s+(?:presiden|menteri|gubernur|pencipta|penemu)|ibukota\s+negara|cuaca\s+hari\s+ini|lirik\s+lagu|terjemahkan\s+ke\s+bahasa)\b/i,
   // Crypto / stocks / gambling / medical diagnosis / astrology
   /\b(trading\s+(?:crypto|forex|saham)|prediksi\s+(?:bitcoin|crypto|saham|ihsg)|judi\s+online|slot\s+gacor|diagnosa\s+penyakit|resep\s+obat\s+dokter|ramalan\s+(?:zodiak|bintang|tarot))\b/i,
 ];

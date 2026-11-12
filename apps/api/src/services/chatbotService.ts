@@ -248,14 +248,38 @@ export class ChatbotService {
 
     // Handle direct tool invocation without search criteria (e.g. "Tolong simpan kos nomor 1 dan 3", "Bandingkan Kos Andalan UI dan Kos Tebet Hijau", "Chat WA pemilik Kos Andalan UI")
     if (!hasAnyCriteria && (explicitToolIntent || mentionedKosIds.length > 0)) {
+      const activeKosList = (options?.activeKosIds ?? [])
+        .map((id) => validKosMap.get(id))
+        .filter((k): k is Kos => k !== undefined);
+
       const targetIds =
         mentionedKosIds.length > 0
           ? mentionedKosIds
           : mentionedIndices.length > 0
-            ? mentionedIndices.map((idx) => allKos[idx - 1]?.id).filter((id): id is string => typeof id === 'string')
-            : allKos.slice(0, 2).map((k) => k.id);
+            ? mentionedIndices
+                .map((idx) => (activeKosList.length > 0 ? activeKosList[idx - 1]?.id : allKos[idx - 1]?.id))
+                .filter((id): id is string => typeof id === 'string')
+            : activeKosList.length >= 2
+              ? activeKosList.slice(0, 2).map((k) => k.id)
+              : [];
 
-      const defaultDest = destinations[0] ?? null;
+      if (targetIds.length === 0) {
+        return {
+          reply:
+            'Maaf Kak, aku belum menemukan nama atau nomor kos yang dimaksud untuk dibandingkan. Boleh sebutkan nama kos dari hasil pencarian sebelumnya atau sebutkan nomor urutnya (misal: "bandingkan kos 1 dan 2")?',
+          params,
+          results: [],
+          noResults: false,
+          actions: [],
+          aiMode: this.orchestrator.getLastAiMode(),
+          ...piiMeta,
+        };
+      }
+
+      const chosenDestId = options?.destinationId ?? params.destinationId;
+      const defaultDest = chosenDestId
+        ? destinations.find((d) => d.id === chosenDestId) ?? destinations[0] ?? null
+        : destinations[0] ?? null;
       const directResults: ChatbotResultItem[] = await Promise.all(
         targetIds.slice(0, CHATBOT_MAX_RESULTS).map(async (id) => {
           const kos = validKosMap.get(id)!;

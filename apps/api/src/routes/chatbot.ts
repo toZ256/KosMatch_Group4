@@ -16,9 +16,13 @@ export function createChatbotRouter(chatbotService: ChatbotService, authMiddlewa
     requireRole('tenant'),
     validate(ChatbotInputSchema),
     asyncHandler(async (req, res) => {
-      const { message } = req.body as { message: string };
+      const { message, activeKosIds, destinationId } = req.body as {
+        message: string;
+        activeKosIds?: string[];
+        destinationId?: string;
+      };
       const userId = req.user?.id;
-      const response = await chatbotService.ask(message, { userId });
+      const response = await chatbotService.ask(message, { userId, activeKosIds, destinationId });
       ok(res, response);
     }),
   );

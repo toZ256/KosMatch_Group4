@@ -33,6 +33,8 @@ const formatRp = (n: number) => `Rp${Math.round(n).toString().replace(/\B(?=(\d{
 
 export interface AgentAskOptions {
   userId?: string;
+  activeKosIds?: string[];
+  destinationId?: string;
 }
 
 /**
@@ -318,7 +320,7 @@ export class AgentOrchestrator {
           .filter((k): k is Kos => k !== undefined);
 
         if (groundedKosList.length < 2) {
-          const fallbackPool = context.results.length >= 2 ? context.results.map((r) => r.kos) : context.allKos;
+          const fallbackPool = context.results.length >= 2 ? context.results.map((r) => r.kos) : [];
           for (const k of fallbackPool) {
             if (groundedKosList.length >= 2) break;
             if (!groundedKosList.some((existing) => existing.id === k.id)) {
@@ -327,7 +329,12 @@ export class AgentOrchestrator {
           }
         }
         groundedKosList = groundedKosList.slice(0, 3);
-        if (groundedKosList.length < 2) continue;
+        if (groundedKosList.length < 2) {
+          toolReplyNotes.push(
+            'Maaf Kak, aku belum menemukan nama atau nomor kos yang dimaksud untuk dibandingkan. Boleh sebutkan nama kos dari hasil pencarian sebelumnya atau sebutkan nomor urutnya (misal: "bandingkan kos 1 dan 2")?',
+          );
+          continue;
+        }
 
         const destId = call.destinationId ?? context.params.destinationId ?? context.destinations[0]?.id;
         const dest = destId ? context.destinations.find((d) => d.id === destId) ?? null : null;

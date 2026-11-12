@@ -130,7 +130,10 @@ export function useToggleBookmark() {
 export const useChatbotAsk = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (message: string) => post<ChatbotResponse>('/chatbot', { message }),
+    mutationFn: (input: string | { message: string; activeKosIds?: string[]; destinationId?: string }) => {
+      const payload = typeof input === 'string' ? { message: input } : input;
+      return post<ChatbotResponse>('/chatbot', payload);
+    },
     onSuccess: (res) => {
       if (res.actions?.some((a) => a.type === 'bookmark_kos' && a.status === 'executed')) {
         void qc.invalidateQueries({ queryKey: qk.bookmarks });

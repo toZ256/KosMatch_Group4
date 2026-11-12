@@ -243,7 +243,7 @@ const BOOKMARK_TRIGGER_PATTERN =
   /\b(bookmark|simpan(?:\s+kos|\s+ke|\s+nomor|\s+no\.?|\s+pilihan|\s+daftar|\s+ini|\s+semua)?|masukkan\s+ke\s+(?:favorit|bookmark|tersimpan|daftar)|tambah(?:kan)?\s+ke\s+(?:bookmark|favorit|tersimpan|daftar)|tandai\s+kos)\b/i;
 
 const COMPARE_TRIGGER_PATTERN =
-  /\b(bandingkan|komparasi|compare|perbandingan|lebih\s+bagus\s+mana|beda(?:nya)?\s+kos|pilih\s+mana\s+antara)\b/i;
+  /\b(bandingkan|bandingin|komparasi|compare|perbandingan|bedakan|bedain|lebih\s+bagus\s+mana|beda(?:nya)?\s+kos|pilih\s+mana\s+antara)\b/i;
 
 const SEARCH_REDIRECT_TRIGGER_PATTERN =
   /\b(terapkan\s+filter|buka\s+(?:halaman\s+)?pencarian|arahkan\s+ke\s+(?:halaman\s+)?cari|lihat\s+(?:semua\s+)?di\s+(?:halaman\s+)?pencarian|halaman\s+cari|filter\s+pencarian)\b/i;
@@ -281,16 +281,59 @@ export function detectWhatsAppIntent(message: string): WhatsAppIntent {
 
 export function extractMentionedKosIds(message: string, allKos: Kos[]): string[] {
   const lower = message.toLowerCase();
-  const matchedIds: string[] = [];
+  const matched: Kos[] = [];
 
+  // 1. Try explicit comparison pair regex first: 'bandingkan [antara] [kos] X dengan/dan/sama [kos] Y'
+  const pairMatch =
+    /(?:bandingkan|bandingin|komparasi|bedakan|bedain|compare)\s+(?:antara\s+)?(?:kost?\s+)?(.+?)\s+(?:dengan|dan|sama|vs)\s+(?:kost?\s+)?(.+?)(?:\s+(?:dong|lengkap|ya|nih|banget)|$|[?.!])/i.exec(
+      lower,
+    );
+  if (pairMatch) {
+    const rawT1 = pairMatch[1]!.replace(/^(?:kost?|rumah kontrakan)\s+/i, '').trim();
+    const rawT2 = pairMatch[2]!.replace(/^(?:kost?|rumah kontrakan)\s+/i, '').trim();
+    for (const raw of [rawT1, rawT2]) {
+      if (!raw || raw.length < 2) continue;
+      // Exact substring match
+      const direct = allKos.find((k) => k.namaKos.toLowerCase().includes(raw));
+      if (direct && !matched.some((m) => m.id === direct.id)) {
+        matched.push(direct);
+        continue;
+      }
+      // Token-based match (e.g. "bu budi", "abun tipe a")
+      const toks = raw.split(/\s+/).filter((t) => t.length > 1 && !/^(dan|sama|dengan|tipe|yang|kos|kost)$/i.test(t));
+      if (toks.length > 0) {
+        const tokMatch = allKos.find((k) => toks.every((tok) => k.namaKos.toLowerCase().includes(tok)));
+        if (tokMatch && !matched.some((m) => m.id === tokMatch.id)) {
+          matched.push(tokMatch);
+        }
+      }
+    }
+    if (matched.length >= 2) return matched.map((m) => m.id);
+  }
+
+  // 2. Scan each kos by full name or extracted brand
   for (const kos of allKos) {
     const fullName = kos.namaKos.toLowerCase();
-    const shortName = fullName.replace(/^kos\s+/i, '').trim();
-    if (lower.includes(fullName) || (shortName.length >= 6 && lower.includes(shortName))) {
-      matchedIds.push(kos.id);
+    const brand = fullName
+      .replace(/^(?:kost?|rumah kontrakan)\s+/i, '')
+      .replace(/^(?:putra|putri|campur)\s+/i, '')
+      .split(/\s+tipe\b|\s+lt\d|\s+lt\.\d/i)[0]!
+      .trim();
+
+    if (lower.includes(fullName)) {
+      if (!matched.some((m) => m.id === kos.id)) {
+        matched.push(kos);
+      }
+    } else if (brand.length >= 3 && !/^(kost?|rumah|tipe|\d+)$/i.test(brand)) {
+      if (lower.includes(brand)) {
+        if (!matched.some((m) => m.id === kos.id)) {
+          matched.push(kos);
+        }
+      }
     }
   }
-  return matchedIds;
+
+  return matched.map((m) => m.id);
 }
 
 export function extractMentionedIndices(message: string): number[] {
@@ -484,7 +527,7 @@ export class MockLlmProvider implements LlmProvider {
     const mentionedIndices = extractMentionedIndices(message);
     const candidateKos = context.results.length > 0 ? context.results.map((r) => r.kos) : context.allKos;
 
-    const resolveTargetIds = (defaultCount: number): string[] => {
+    const resolveTargetIds = (defaultCount: number, allowAllKosFallback = true): string[] => {
       if (mentionedIds.length > 0) {
         return mentionedIds;
       }
@@ -494,7 +537,10 @@ export class MockLlmProvider implements LlmProvider {
           .filter((id): id is string => typeof id === 'string');
         if (byIdx.length > 0) return byIdx;
       }
-      return candidateKos.slice(0, defaultCount).map((k) => k.id);
+      if (context.results.length > 0) {
+        return context.results.slice(0, defaultCount).map((r) => r.kos.id);
+      }
+      return allowAllKosFallback ? candidateKos.slice(0, defaultCount).map((k) => k.id) : [];
     };
 
     // 1. WhatsApp Draft Tool
@@ -523,9 +569,9 @@ export class MockLlmProvider implements LlmProvider {
 
     // 3. Compare Kos Tool
     if (COMPARE_TRIGGER_PATTERN.test(message)) {
-      let targetIds = resolveTargetIds(2);
-      if (targetIds.length === 1 && candidateKos.length >= 2) {
-        const second = candidateKos.find((k) => k.id !== targetIds[0]);
+      let targetIds = resolveTargetIds(2, false);
+      if (targetIds.length === 1 && context.results.length >= 2) {
+        const second = context.results.map((r) => r.kos).find((k) => k.id !== targetIds[0]);
         if (second) targetIds = [targetIds[0]!, second.id];
       }
       if (targetIds.length >= 2) {

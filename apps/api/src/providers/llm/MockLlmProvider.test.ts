@@ -4,7 +4,7 @@ import { DESTINATION_SEED, seedRepository } from '../../data/seed';
 import { MockCommuteProvider } from '../commute/MockCommuteProvider';
 import { ChatbotService } from '../../services/chatbotService';
 import { KosService } from '../../services/kosService';
-import { MockLlmProvider } from './MockLlmProvider';
+import { MockLlmProvider, extractMentionedKosIds } from './MockLlmProvider';
 import { RagLlmProvider } from './RagLlmProvider';
 import { createLlmProvider } from './index';
 import { ChatParamsSchema } from '@kosmatch/shared';
@@ -83,6 +83,29 @@ describe('MockLlmProvider.composeReply', () => {
   });
   it('mentions count and the estimate disclaimer', async () => {
     expect(await llm.composeReply({ maxBudgetMonthly: 3_000_000 }, 3)).toMatch(/3 kos.*Estimasi/);
+  });
+});
+
+describe('extractMentionedKosIds matching', () => {
+  const sampleKosList = [
+    { id: 'kos-0398', namaKos: 'Kost Bu Budi Tipe Standar Non AC Beji Depok' },
+    { id: 'kos-0025', namaKos: 'Kost Abun Tipe A Beji Depok' },
+    { id: 'kos-0001', namaKos: 'Kos Andalan UI' },
+  ] as import('@kosmatch/shared').Kos[];
+
+  it('matches informal pairs and extracted brands', () => {
+    expect(extractMentionedKosIds('coba bandingkan kos bu budi dengan kos abun tipe a', sampleKosList)).toEqual([
+      'kos-0398',
+      'kos-0025',
+    ]);
+    expect(extractMentionedKosIds('Bandingin kost bu budi sama kos abun dong', sampleKosList)).toEqual([
+      'kos-0398',
+      'kos-0025',
+    ]);
+    expect(extractMentionedKosIds('tolong bandingkan kost bu budi dengan kos abun', sampleKosList)).toEqual([
+      'kos-0398',
+      'kos-0025',
+    ]);
   });
 });
 

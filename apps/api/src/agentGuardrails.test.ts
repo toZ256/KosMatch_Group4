@@ -68,7 +68,16 @@ describe('AI Agent & 4-Layer Guardrails Suite', () => {
       expect(isOutOfScope('Kerjakan tugas kuliah matematika hitunglah integral dan determinan matriks')).toBe(true);
       expect(isOutOfScope('kerjakan 1+56')).toBe(true);
       expect(isOutOfScope('hitung 25 * 4')).toBe(true);
+      expect(isOutOfScope('satu tambah satu berapa?')).toBe(true);
       expect(isOutOfScope('Prediksi bitcoin dan trading crypto hari ini')).toBe(true);
+    });
+
+    it('blocks word-based arithmetic queries with OUT_OF_SCOPE_DOMAIN guardrail notice', async () => {
+      const res = await askApi('satu tambah satu berapa?');
+      expect(res.status).toBe(200);
+      expect(res.body.data.guardrailBlocked).toBe(true);
+      expect(res.body.data.guardrailReason).toBe('OUT_OF_SCOPE_DOMAIN');
+      expect(res.body.data.reply).toContain('Sebagai asisten KosMatch Jakarta, saya hanya dapat membantu Anda mencari kos');
     });
 
     it('4. allows domain-valid queries even if they mention academic majors, greetings, or Jakarta streets like TB Simatupang', async () => {
@@ -195,6 +204,19 @@ describe('AI Agent & 4-Layer Guardrails Suite', () => {
         expect(item.commute.length).toBeGreaterThan(0);
         expect(item.commute[0].isEstimate).toBe(true);
       }
+    });
+
+    it('accurately resolves informal Indonesian comparison between specific kos brands (e.g. Andalan UI & Tebet Hijau)', async () => {
+      const res = await askApi('Bandingin kos andalan ui sama kos tebet hijau dong');
+      expect(res.status).toBe(200);
+      const data = res.body.data;
+      const cmpAction = data.actions?.find((a: { type: string }) => a.type === 'compare_kos');
+      expect(cmpAction).toBeDefined();
+      expect(cmpAction.status).toBe('executed');
+      expect(data.reply).toContain('Kos Andalan UI');
+      expect(data.reply).toContain('Kos Tebet Hijau');
+      expect(data.reply).not.toContain('Nanang');
+      expect(data.reply).not.toContain('Baladewa');
     });
 
     it('12. Tool 4 (apply_search_filters): builds valid /cari URL with query parameters', async () => {

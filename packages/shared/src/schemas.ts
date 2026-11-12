@@ -123,6 +123,8 @@ export const CommuteQuerySchema = z.object({
 
 export const ChatbotInputSchema = z.object({
   message: z.string().trim().min(1, 'Pesan wajib diisi').max(500),
+  activeKosIds: z.array(z.string().min(1)).optional(),
+  destinationId: z.string().optional(),
 });
 
 export const ChatParamsSchema = z.object({

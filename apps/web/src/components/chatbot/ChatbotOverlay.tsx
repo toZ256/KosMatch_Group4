@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowUp, MapPin, ShieldAlert, Sparkles, X } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { ArrowUp, ShieldAlert, Sparkles, X } from 'lucide-react';
 import { resolveLocationQuery } from '@kosmatch/shared';
 import { useChatbotAsk, useLogin } from '../../api/hooks';
 import { errorMessage } from '../../api/client';
-import { formatRupiah } from '../../lib/format';
 import { useAuthStore } from '../../stores/authStore';
 import { useChatbotStore } from '../../stores/chatbotStore';
 import { toast } from '../../stores/toastStore';
@@ -63,7 +62,17 @@ export function ChatbotOverlay() {
       if (!token) {
         await login.mutateAsync({ email: 'tenant@kosmatch.test', password: 'password123' });
       }
-      const res = await ask.mutateAsync(message);
+      const latestResults = messages
+        .slice()
+        .reverse()
+        .find((m) => m.results && m.results.length > 0)?.results;
+      const activeKosIds = latestResults?.map((r) => r.kos.id);
+      const latestDestId = messages
+        .slice()
+        .reverse()
+        .find((m) => m.destinationId)?.destinationId;
+
+      const res = await ask.mutateAsync({ message, activeKosIds, destinationId: latestDestId });
       addMessage({
         id: nextId(),
         role: 'bot',
@@ -177,66 +186,6 @@ export function ChatbotOverlay() {
                     <span className="italic font-medium text-ink">{m.unsupportedRequests.join(', ')}</span> tidak termasuk dalam katalog standar kos kami.
                   </div>
                 )}
-                {m.params &&
-                  (m.params.areaKeywords?.length ||
-                    m.params.destinationId ||
-                    m.params.maxBudgetMonthly ||
-                    m.params.tipe ||
-                    m.params.fasilitas?.length) && (
-                    <div
-                      data-testid="chatbot-extracted-params"
-                      className="mb-2 rounded-2xl border border-accent/30 bg-bg/70 p-2.5 text-[10px]"
-                    >
-                      <div className="flex items-center gap-1 font-bold text-ink">
-                        <MapPin size={11} className="shrink-0 text-primary" />
-                        <span>Parameter AI Terdeteksi:</span>
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {m.params.areaKeywords && m.params.areaKeywords.length > 0 && (
-                          <span className="rounded-full bg-primary/15 px-2 py-0.5 font-bold text-primary">
-                            📍 Kawasan: {m.params.areaKeywords[0]}
-                          </span>
-                        )}
-                        {m.params.maxBudgetMonthly && (
-                          <span className="rounded-full bg-surface px-2 py-0.5 font-semibold text-ink shadow-xs">
-                            💰 Maks {formatRupiah(m.params.maxBudgetMonthly)}
-                          </span>
-                        )}
-                        {m.params.tipe && (
-                          <span className="rounded-full bg-surface px-2 py-0.5 font-semibold capitalize text-ink shadow-xs">
-                            🏠 Kos {m.params.tipe}
-                          </span>
-                        )}
-                        {m.params.fasilitas?.map((f) => (
-                          <span key={f} className="rounded-full bg-accent/15 px-2 py-0.5 font-semibold text-ink">
-                            ✓ {f}
-                          </span>
-                        ))}
-                      </div>
-                      {m.params.areaKeywords && m.params.areaKeywords.length > 1 && (
-                        <div className="mt-2 border-t border-line/70 pt-1.5">
-                          <span className="block text-[9px] font-semibold text-muted">
-                            Mencakup daerah & jalan sekitar (klik untuk filter di halaman cari):
-                          </span>
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {m.params.areaKeywords
-                              .filter((kw) => !kw.toLowerCase().startsWith('jakarta '))
-                              .slice(0, 7)
-                              .map((kw) => (
-                                <Link
-                                  key={kw}
-                                  to={`/cari?q=${encodeURIComponent(kw)}`}
-                                  onClick={closePanel}
-                                  className="rounded-full border border-line bg-surface px-2 py-0.5 text-[9px] font-semibold text-ink transition hover:border-primary hover:text-primary"
-                                >
-                                  {kw}
-                                </Link>
-                              ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 <div>{m.text.replace(/\*\*([^*]+)\*\*/g, '$1')}</div>
               </MessageBubble>
               {m.actions && m.actions.length > 0 && (
