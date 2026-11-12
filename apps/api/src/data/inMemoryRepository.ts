@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { Bookmark, ChatHistory, Destination, Kos, User } from '@kosmatch/shared';
+import {
+  matchKosToLocation,
+  resolveLocationQuery,
+  type Bookmark,
+  type ChatHistory,
+  type Destination,
+  type Kos,
+  type User,
+} from '@kosmatch/shared';
 import type { KosFilter, Repository } from './repository';
 
 /** In-memory Repository implementation. Data is lost on restart (accepted for this phase). */
@@ -30,12 +38,38 @@ export class InMemoryRepository implements Repository {
   kos: Repository['kos'] = {
     list: async (filter?: KosFilter) => {
       const q = filter?.q?.trim().toLowerCase();
-      return [...this.kosMap.values()]
+      const resolvedLoc = q ? resolveLocationQuery(q) : null;
+
+      const baseFiltered = [...this.kosMap.values()]
         .filter((k) => filter?.minPrice === undefined || k.hargaSewa >= filter.minPrice)
         .filter((k) => filter?.maxPrice === undefined || k.hargaSewa <= filter.maxPrice)
-        .filter((k) => !filter?.tipe || k.tipe === filter.tipe)
+        .filter((k) => !filter?.tipe || k.tipe === filter.tipe);
+
+      if (!q) {
+        return baseFiltered.map((k) => ({ ...k }));
+      }
+
+      if (resolvedLoc) {
+        return baseFiltered
+          .map((k) => ({ kos: k, locMatch: matchKosToLocation(k, resolvedLoc) }))
+          .filter(
+            ({ kos, locMatch }) =>
+              locMatch.matches ||
+              kos.namaKos.toLowerCase().includes(q) ||
+              kos.area.toLowerCase().includes(q) ||
+              kos.deskripsi.toLowerCase().includes(q),
+          )
+          .sort((a, b) => a.locMatch.relevanceScore - b.locMatch.relevanceScore)
+          .map(({ kos }) => ({ ...kos }));
+      }
+
+      return baseFiltered
         .filter(
-          (k) => !q || k.namaKos.toLowerCase().includes(q) || k.area.toLowerCase().includes(q),
+          (k) =>
+            k.namaKos.toLowerCase().includes(q) ||
+            k.area.toLowerCase().includes(q) ||
+            k.deskripsi.toLowerCase().includes(q) ||
+            k.fasilitas.some((f) => f.toLowerCase().includes(q)),
         )
         .map((k) => ({ ...k }));
     },

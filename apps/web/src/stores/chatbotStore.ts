@@ -1,10 +1,11 @@
 import { create } from 'zustand';
-import type { ChatbotResultItem } from '@kosmatch/shared';
+import type { AgentAction, ChatbotResultItem, ChatParams } from '@kosmatch/shared';
 
 export interface BotMessage {
   id: string;
   role: 'bot' | 'user';
   text: string;
+  params?: ChatParams;
   results?: ChatbotResultItem[];
   noResults?: boolean;
   destinationId?: string;
@@ -12,12 +13,16 @@ export interface BotMessage {
   isFallback?: boolean;
   fallbackReason?: string;
   unsupportedRequests?: string[];
+  actions?: AgentAction[];
+  guardrailNotice?: string;
+  guardrailBlocked?: boolean;
+  aiMode?: 'gemini' | 'mock';
 }
 
 export const GREETING: BotMessage = {
   id: 'greeting',
   role: 'bot',
-  text: 'Halo! Saya asisten KosMatch. Ceritakan kos seperti apa yang kamu cari. Contoh: Cari kos dekat Stasiun Sudirman, ojek di bawah 15rb, budget 3 juta.',
+  text: 'Halo Kak! Kenalin, aku KosMatch AI yang siap bantu carikan kos paling pas buat kamu 😊\n\nLagi cari kos dekat kampus, kantor, atau daerah mana nih? Boleh ceritain juga kisaran budget, tipe kos (putra/putri/campur), atau kalau mau langsung bandingin kos & chat pemiliknya juga bisa banget!',
 };
 
 interface ChatbotState {

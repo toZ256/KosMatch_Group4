@@ -1,8 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ChatParamsSchema, type ChatbotResultItem, type ChatParams, type Destination } from '@kosmatch/shared';
-import type { LlmProvider, RagContext } from './LlmProvider';
-import { MockLlmProvider } from './MockLlmProvider';
+import {
+  AgentToolTypeSchema,
+  ChatParamsSchema,
+  MAX_TOOLS_PER_TURN,
+  WhatsAppIntentSchema,
+  type ChatbotResultItem,
+  type ChatParams,
+  type Destination,
+} from '@kosmatch/shared';
+import type { LlmProvider, ProposedToolCall, RagContext, ToolDetectionContext } from './LlmProvider';
+import {
+  MockLlmProvider,
+  extractAreaKeywords,
+  hasExplicitAgentToolIntent,
+  isExplicitUnsupportedDestination,
+} from './MockLlmProvider';
 
 const formatRp = (n: number) => `Rp${Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 
@@ -87,6 +100,65 @@ const STANDARD_FACILITY_MAP: Record<string, string> = {
 };
 
 const GREETING_ONLY = /^(halo|hai|hi|hello|pagi|siang|sore|malam|permisi|tes|test|ping|p)\b[!.?\s]*$/i;
+const MAX_CACHE_ENTRIES = 150;
+const RAG_MAX_CONTEXT_ITEMS = 3;
+const RAG_MAX_FACILITIES_PER_KOS = 4;
+
+/**
+ * Deterministic Pre-Analyzer: checks whether local rule/gazetteer extraction already
+ * resolved the user's parameters so we can skip the expensive LLM extraction call (0 tokens).
+ */
+export function shouldBypassLlmExtraction(message: string, ruleParams: ChatParams): boolean {
+  const trimmed = message.trim();
+  if (trimmed.length < 4 || GREETING_ONLY.test(trimmed)) {
+    return true;
+  }
+
+  // 1. Direct tool invocation (bookmark, WhatsApp draft, compare, search redirect) is handled locally
+  if (hasExplicitAgentToolIntent(trimmed)) {
+    return true;
+  }
+
+  const hasExtractedParams = Boolean(
+    ruleParams.destinationId ||
+      ruleParams.maxBudgetMonthly ||
+      ruleParams.minBudgetMonthly ||
+      ruleParams.maxCommuteMin ||
+      ruleParams.maxCommuteCostRp ||
+      ruleParams.preferredMode ||
+      ruleParams.tipe ||
+      ruleParams.listrikTermasuk !== undefined ||
+      (ruleParams.fasilitas && ruleParams.fasilitas.length > 0) ||
+      (ruleParams.areaKeywords && ruleParams.areaKeywords.length > 0) ||
+      (ruleParams.unsupportedRequests && ruleParams.unsupportedRequests.length > 0),
+  );
+
+  if (!hasExtractedParams) {
+    // Nothing was recognized locally -> let LLM attempt semantic slot extraction
+    return false;
+  }
+
+  // 2. Check if user mentioned a campus/station keyword that was NOT resolved into destinationId or unsupportedRequests
+  const mentionsUnresolvedCampus =
+    /\b(kampus|universitas|institut|politeknik|sekolah\s+tinggi|stasiun|halte)\b/i.test(trimmed) &&
+    !ruleParams.destinationId &&
+    (!ruleParams.unsupportedRequests || ruleParams.unsupportedRequests.length === 0);
+  if (mentionsUnresolvedCampus) {
+    return false;
+  }
+
+  // 3. Check if user explicitly asked for a facility/feature ("fasilitas ...", "dilengkapi ...") that wasn't caught
+  const mentionsUnresolvedFacility =
+    /\b(fasilitas(?:nya)?|dilengkapi|lengkap\s+dengan)\b/i.test(trimmed) &&
+    (!ruleParams.fasilitas || ruleParams.fasilitas.length === 0) &&
+    (!ruleParams.unsupportedRequests || ruleParams.unsupportedRequests.length === 0);
+  if (mentionsUnresolvedFacility) {
+    return false;
+  }
+
+  // Parameters were cleanly extracted locally -> bypass LLM call to save tokens!
+  return true;
+}
 
 function readDotenvValue(keys: string[]): string {
   const candidates = [
@@ -121,9 +193,9 @@ function readDotenvValue(keys: string[]): string {
 }
 
 /**
- * RAG (Retrieval-Augmented Generation) LLM Provider.
- * Translates natural/casual human prompts into structured database filters,
- * and composes grounded recommendations without wasting tokens on transport tables.
+ * RAG (Retrieval-Augmented Generation) & Agentic LLM Provider.
+ * Translates natural/casual human prompts into structured database filters and structured tool calls,
+ * and composes grounded recommendations with Layer 4 Circuit Breaker fallback to MockLlmProvider.
  */
 export class RagLlmProvider implements LlmProvider {
   private readonly baseUrl: string;
@@ -135,12 +207,28 @@ export class RagLlmProvider implements LlmProvider {
   private resolvedModel: string | null = null;
   private workingGoogleBaseUrl: string | null = null;
   private readonly invalidKeys = new Set<string>();
+  private lastParsedActions: ProposedToolCall[] = [];
+  private lastAiMode: 'gemini' | 'mock' = 'mock';
+  private readonly extractCache = new Map<string, ChatParams>();
+  private readonly replyCache = new Map<string, string>();
+
+  getLastAiMode(): 'gemini' | 'mock' {
+    return this.lastAiMode;
+  }
+
+  private setBoundedCache<T>(map: Map<string, T>, key: string, value: T): void {
+    if (map.size >= MAX_CACHE_ENTRIES) {
+      const oldestKey = map.keys().next().value;
+      if (oldestKey !== undefined) map.delete(oldestKey);
+    }
+    map.set(key, value);
+  }
 
   constructor(options: RagLlmOptions = {}) {
     this.baseUrl = (options.baseUrl ?? process.env.LLM_BASE_URL ?? GOOGLE_AI_STUDIO_BASE_URL).replace(/\/+$/, '');
     this.initialApiKey = options.apiKey ?? '';
     this.configuredModel = options.model ?? process.env.LLM_MODEL ?? DEFAULT_GEMINI_MODEL;
-    this.timeoutMs = options.timeoutMs ?? 4500;
+    this.timeoutMs = Math.min(options.timeoutMs ?? 4500, 5000);
     this.fetchFn = options.fetchFn ?? fetch;
   }
 
@@ -203,8 +291,13 @@ export class RagLlmProvider implements LlmProvider {
     return DEFAULT_GEMINI_MODEL;
   }
 
-  /** Calls Google AI Studio or Vertex AI Express native generateContent REST API with fast failover. */
-  private async callGeminiNative(systemPrompt: string, userPrompt: string, temperature = 0.2): Promise<string | null> {
+  /** Calls Google AI Studio or Vertex AI Express native generateContent REST API with fast failover & token cap. */
+  private async callGeminiNative(
+    systemPrompt: string,
+    userPrompt: string,
+    temperature = 0.2,
+    maxOutputTokens = 200,
+  ): Promise<string | null> {
     const apiKey = this.getApiKey();
     if (!apiKey || this.invalidKeys.has(apiKey)) return null;
 
@@ -241,11 +334,13 @@ export class RagLlmProvider implements LlmProvider {
             ],
             generationConfig: {
               temperature,
+              maxOutputTokens,
             },
           }),
           signal: controller.signal,
         });
         if (!res.ok) {
+          // Circuit breaker handles 429 rate-limit or 5xx errors gracefully
           if (res.status !== 400 && res.status !== 401 && res.status !== 403) {
             allAuthRejected = false;
           }
@@ -271,9 +366,14 @@ export class RagLlmProvider implements LlmProvider {
     return null;
   }
 
-  private async chatCompletion(systemPrompt: string, userPrompt: string, temperature = 0.2): Promise<string | null> {
+  private async chatCompletion(
+    systemPrompt: string,
+    userPrompt: string,
+    temperature = 0.2,
+    maxOutputTokens = 200,
+  ): Promise<string | null> {
     if (this.isGoogleEndpoint()) {
-      return this.callGeminiNative(systemPrompt, userPrompt, temperature);
+      return this.callGeminiNative(systemPrompt, userPrompt, temperature, maxOutputTokens);
     }
 
     const apiKey = this.getApiKey();
@@ -291,6 +391,7 @@ export class RagLlmProvider implements LlmProvider {
             { role: 'user', content: userPrompt },
           ],
           temperature,
+          max_tokens: maxOutputTokens,
         }),
         signal: controller.signal,
       });
@@ -306,55 +407,62 @@ export class RagLlmProvider implements LlmProvider {
   }
 
   async extractParams(message: string, destinations: Destination[]): Promise<ChatParams> {
+    this.lastParsedActions = [];
+    this.lastAiMode = 'mock';
     const ruleParams = await this.fallback.extractParams(message, destinations);
     const trimmed = message.trim();
-    if (trimmed.length < 4 || GREETING_ONLY.test(trimmed)) {
+
+    // Stage 0 Token Optimization: Pre-analyze locally and skip LLM call if parameters are already clear
+    if (shouldBypassLlmExtraction(trimmed, ruleParams)) {
       return ruleParams;
     }
 
-    const _destCatalog = destinations
-      .map((d) => `- id: "${d.id}" | nama: "${d.nama}" | kategori: ${d.kategori} | alias: [${d.aliases.join(', ')}]`)
-      .join('\n');
+    const normalizedKey = trimmed.toLowerCase().replace(/\s+/g, ' ');
+    const cachedParams = this.extractCache.get(normalizedKey);
+    if (cachedParams) {
+      return cachedParams;
+    }
 
+    // Compact token-optimized slot extraction prompt (~68% smaller than verbose prompt)
     const systemPrompt = [
-      'Kamu adalah AI Semantic Slot Extractor untuk aplikasi pencarian kos KosMatch.',
-      'Tugasmu adalah membaca kalimat pengguna dan memecahnya ke dalam kategori semantik apa adanya TANPA MEMAKSAKAN atau MENYAMARATAKAN nama fasilitas dan destinasi:',
-      '',
-      'Kategori yang harus diekstrak:',
-      '1. "destination": nama tempat/kampus/stasiun/kantor yang disebut (contoh: "itb", "binus", "paramadina", "stasiun sudirman"). Isi null jika tidak ada.',
-      '2. "area": nama kota/daerah jika disebut (contoh: "tambun", "depok", "jakarta selatan"). Isi null jika tidak ada.',
-      '3. "minBudgetMonthly": angka batas bawah sewa bulanan dalam Rupiah, atau null.',
-      '4. "maxBudgetMonthly": angka batas atas sewa bulanan dalam Rupiah, atau null.',
-      '5. "maxCommuteMin": angka menit waktu perjalanan maksimal, atau null.',
-      '6. "maxCommuteCostRp": angka rupiah ongkos transportasi maksimal, atau null.',
-      '7. "preferredMode": "ojek" | "transit" | "jalan_kaki" | null.',
-      '8. "tipe": "putra" | "putri" | "campur" | null.',
-      '9. "rawFacilities": array string berisi SEMUA fasilitas atau benda yang diminta pengguna apa adanya dalam bentuk frasa utuh (contoh: ["meja makan"], ["ac"], ["kamar mandi dalam"], ["kursi pijet"], ["kolam renang pribadi"], ["wifi"]).',
-      '   PERHATIAN KETAT: JANGAN PERNAH memotong frasa majemuk menjadi kata tunggal! Contoh: "meja makan" diekstrak sebagai "meja makan" (BUKAN "meja"!), "kursi pijat" diekstrak sebagai "kursi pijat" (BUKAN "kursi"!).',
-      '10. "listrikTermasuk": boolean (true jika user minta harga sudah termasuk listrik / free listrik), atau null.',
-      '',
-      'Kembalikan HANYA JSON murni (tanpa markdown ```json):',
-      '{',
-      '  "destination": string | null,',
-      '  "area": string | null,',
-      '  "minBudgetMonthly": number | null,',
-      '  "maxBudgetMonthly": number | null,',
-      '  "maxCommuteMin": number | null,',
-      '  "maxCommuteCostRp": number | null,',
-      '  "preferredMode": "ojek" | "transit" | "jalan_kaki" | null,',
-      '  "tipe": "putra" | "putri" | "campur" | null,',
-      '  "rawFacilities": string[],',
-      '  "listrikTermasuk": boolean | null',
-      '}',
+      'Ekstrak parameter pencarian kos Jakarta ke JSON murni (tanpa markdown):',
+      '- destination: kampus/stasiun/kantor utama (ui, binus, trisakti, unj, atma jaya, scbd, sudirman, thamrin, kuningan, stasiun sudirman/tebet/palmerah) atau kampus/POI lain. Jangan isi nama jalan/kecamatan.',
+      '- area: jalan/koridor/kecamatan/kota Jabodetabek (mis. tb simatupang, cilandak, kemang, depok, bsd) atau null.',
+      '- minBudgetMonthly, maxBudgetMonthly, maxCommuteMin, maxCommuteCostRp: number | null.',
+      '- preferredMode: "ojek"|"transit"|"jalan_kaki"|null. tipe: "putra"|"putri"|"campur"|null.',
+      '- rawFacilities: string[] frasa utuh (jangan potong frasa majemuk seperti "meja makan" atau "kursi pijat").',
+      '- listrikTermasuk: boolean|null. toolCalls: Array<{"tool":"whatsapp_draft"|"bookmark_kos"|"compare_kos"|"search_redirect","intent"?:string,"kosIndices"?:number[]}>.',
     ].join('\n');
 
-    const raw = await this.chatCompletion(systemPrompt, trimmed, 0);
+    const raw = await this.chatCompletion(systemPrompt, trimmed, 0, 160);
     if (!raw) return ruleParams;
+    this.lastAiMode = 'gemini';
 
     try {
       const jsonMatch = /\{[\s\S]*\}/.exec(raw);
       if (!jsonMatch) return ruleParams;
       const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+
+      // Parse any structured toolCalls returned by the LLM
+      if (Array.isArray(parsed.toolCalls)) {
+        const parsedActions: ProposedToolCall[] = [];
+        for (const rawTool of parsed.toolCalls.slice(0, MAX_TOOLS_PER_TURN)) {
+          if (typeof rawTool !== 'object' || rawTool === null) continue;
+          const tObj = rawTool as Record<string, unknown>;
+          const toolParse = AgentToolTypeSchema.safeParse(tObj.tool);
+          if (!toolParse.success) continue;
+          const intentParse = WhatsAppIntentSchema.safeParse(tObj.intent);
+          const kosIndices = Array.isArray(tObj.kosIndices)
+            ? tObj.kosIndices.filter((n): n is number => typeof n === 'number' && n >= 1 && n <= 20)
+            : undefined;
+          parsedActions.push({
+            tool: toolParse.data,
+            intent: intentParse.success ? intentParse.data : undefined,
+            kosIndices,
+          });
+        }
+        this.lastParsedActions = parsedActions;
+      }
 
       const candidate: Record<string, unknown> = { ...ruleParams };
       const oosItems: string[] = [...(ruleParams.unsupportedRequests ?? [])];
@@ -372,11 +480,23 @@ export class RagLlmProvider implements LlmProvider {
         if (matched) {
           candidate.destinationId = matched.id;
         } else {
-          // Destination is not in standard 11 catalog -> Out-of-Scope Destination!
-          const label = rawDest.length <= 4 ? rawDest.toUpperCase() : toTitleCase(rawDest);
-          const fullLabel = label.startsWith('Kampus ') || label.startsWith('Stasiun ') || label.startsWith('Titik ') ? label : `Kampus/Titik ${label}`;
-          if (!oosItems.includes(fullLabel)) oosItems.push(fullLabel);
-          delete candidate.destinationId;
+          const destAreas = extractAreaKeywords(rawDest);
+          if (destAreas.length > 0 && !isExplicitUnsupportedDestination(rawDest)) {
+            const existingAreas = Array.isArray(candidate.areaKeywords)
+              ? (candidate.areaKeywords as string[])
+              : [];
+            candidate.areaKeywords = Array.from(new Set([...destAreas, ...existingAreas]));
+            delete candidate.destinationId;
+          } else {
+            // Destination is not in standard 11 catalog and not a Jabodetabek area -> Out-of-Scope Destination!
+            const label = rawDest.length <= 4 ? rawDest.toUpperCase() : toTitleCase(rawDest);
+            const fullLabel =
+              label.startsWith('Kampus ') || label.startsWith('Stasiun ') || label.startsWith('Titik ')
+                ? label
+                : `Kampus/Titik ${label}`;
+            if (!oosItems.includes(fullLabel)) oosItems.push(fullLabel);
+            delete candidate.destinationId;
+          }
         }
       }
 
@@ -435,7 +555,13 @@ export class RagLlmProvider implements LlmProvider {
 
       // 6. Area keywords validation
       if (typeof parsed.area === 'string' && parsed.area.trim().length > 0) {
-        candidate.areaKeywords = Array.from(new Set([...(ruleParams.areaKeywords ?? []), toTitleCase(parsed.area.trim())]));
+        const rawArea = parsed.area.trim();
+        const mappedAreas = extractAreaKeywords(rawArea);
+        const existingAreas = Array.isArray(candidate.areaKeywords)
+          ? (candidate.areaKeywords as string[])
+          : [];
+        const toAdd = mappedAreas.length > 0 ? mappedAreas : [toTitleCase(rawArea)];
+        candidate.areaKeywords = Array.from(new Set([...toAdd, ...existingAreas]));
       }
 
       if (typeof parsed.listrikTermasuk === 'boolean') {
@@ -447,21 +573,81 @@ export class RagLlmProvider implements LlmProvider {
       }
 
       const validated = ChatParamsSchema.safeParse(candidate);
-      return validated.success ? validated.data : ruleParams;
+      if (validated.success) {
+        this.setBoundedCache(this.extractCache, normalizedKey, validated.data);
+        return validated.data;
+      }
+      return ruleParams;
     } catch {
       return ruleParams;
     }
   }
 
-  /** Compact context formatter — omits commute tables to save LLM tokens. */
-  private formatRetrievedContext(results: ChatbotResultItem[]): string {
+  async detectToolCalls(message: string, context: ToolDetectionContext): Promise<ProposedToolCall[]> {
+    const ruleTools = await this.fallback.detectToolCalls(message, context);
+    if (this.lastParsedActions.length === 0) {
+      return ruleTools;
+    }
+
+    const candidateKos = context.results.length > 0 ? context.results.map((r) => r.kos) : context.allKos;
+    const merged: ProposedToolCall[] = [...ruleTools];
+
+    for (const llmAction of this.lastParsedActions) {
+      if (merged.some((m) => m.tool === llmAction.tool)) continue;
+      const targetIds = (llmAction.kosIndices ?? [1])
+        .map((idx) => candidateKos[idx - 1]?.id)
+        .filter((id): id is string => typeof id === 'string');
+
+      merged.push({
+        tool: llmAction.tool,
+        intent: llmAction.intent,
+        kosIds: targetIds.length > 0 ? targetIds : candidateKos.slice(0, 2).map((k) => k.id),
+        kosIndices: llmAction.kosIndices,
+        destinationId: context.params.destinationId,
+      });
+    }
+
+    return merged.slice(0, MAX_TOOLS_PER_TURN);
+  }
+
+  /**
+   * Token-optimized RAG context formatter:
+   * - Sends only top 3 kos (instead of all 5) since UI cards already display the full list
+   * - Prioritizes requested facilities and caps at 4 facilities per kos
+   */
+  private formatRetrievedContext(results: ChatbotResultItem[], requestedFacilities?: string[]): string {
+    const reqLower = (requestedFacilities ?? []).map((f) => f.toLowerCase());
     return results
+      .slice(0, RAG_MAX_CONTEXT_ITEMS)
       .map((item, idx) => {
         const { kos } = item;
-        const topFacilities = kos.fasilitas.slice(0, 8).join(', ') || '-';
-        return `${idx + 1}. ${kos.namaKos} | Area: ${kos.area} | Tipe: ${kos.tipe} | Harga: ${formatRp(kos.hargaSewa)}/bln | Fasilitas: ${topFacilities}`;
+        const prioritized = [...kos.fasilitas].sort((a, b) => {
+          const aMatch = reqLower.some((r) => a.toLowerCase().includes(r)) ? -1 : 0;
+          const bMatch = reqLower.some((r) => b.toLowerCase().includes(r)) ? -1 : 0;
+          return aMatch - bMatch;
+        });
+        const topFacilities = prioritized.slice(0, RAG_MAX_FACILITIES_PER_KOS).join(', ') || '-';
+        return `${idx + 1}. ${kos.namaKos} (${kos.area}, ${kos.tipe}, ${formatRp(kos.hargaSewa)}/bln, Fasilitas: ${topFacilities})`;
       })
       .join('\n');
+  }
+
+  private buildReplyCacheKey(params: ChatParams, context?: RagContext): string {
+    const ids = (context?.results ?? [])
+      .slice(0, RAG_MAX_CONTEXT_ITEMS)
+      .map((r) => r.kos.id)
+      .join(',');
+    return JSON.stringify({
+      d: params.destinationId ?? '',
+      a: params.areaKeywords?.slice(0, 2) ?? [],
+      minB: params.minBudgetMonthly ?? 0,
+      maxB: params.maxBudgetMonthly ?? 0,
+      t: params.tipe ?? '',
+      f: params.fasilitas ?? [],
+      fb: Boolean(context?.isFallback),
+      oos: context?.unsupportedRequests ?? [],
+      ids,
+    });
   }
 
   async composeReply(params: ChatParams, resultCount: number, context?: RagContext): Promise<string> {
@@ -479,43 +665,52 @@ export class RagLlmProvider implements LlmProvider {
       return this.fallback.composeReply(params, resultCount, context);
     }
 
-    const ragDocs = this.formatRetrievedContext(context.results);
+    const cacheKey = this.buildReplyCacheKey(params, context);
+    const cachedReply = this.replyCache.get(cacheKey);
+    if (cachedReply) {
+      this.lastAiMode = 'gemini';
+      return cachedReply;
+    }
+
+    const ragDocs = this.formatRetrievedContext(context.results, params.fasilitas);
     const systemPromptLines = [
-      'Kamu adalah Asisten AI KosMatch Jakarta. Jawab singkat (maksimal 2-3 kalimat), ramah, dalam Bahasa Indonesia.',
-      'Sebutkan 1-2 kos terbaik dari DATA KOS di bawah beserta harga dan fasilitas utamanya yang cocok dengan permintaan pengguna.',
-      'Jangan mengarang data di luar daftar. Beritahu pengguna bahwa mereka bisa menekan tombol "Lihat Estimasi Transportasi" pada kartu kos untuk mengecek Estimasi waktu dan ongkos perjalanan.',
+      'Kamu KosMatch AI, asisten pencari kos Jakarta yang ramah ("Halo Kak!"). Tanpa tanda bintang markdown (** atau *).',
+      'Tulis 2 paragraf singkat (pisahkan 1 baris kosong):',
+      'Paragraf 1: Sebutkan 1-2 kos terbaik dari DATA KOS (nama, harga, area, fasilitas). Jangan mengarang data.',
+      'Paragraf 2: Ajak klik "Lihat Estimasi Transportasi" untuk melihat Estimasi waktu/ongkos perjalanan, lalu tanyakan preferensi lanjutan (tipe putra/putri/campur, fasilitas, atau fitur bandingkan kos & draf chat pemilik).',
     ];
 
     if (context?.isFallback) {
       systemPromptLines.push(
-        'PERHATIAN STRATEGI FALLBACK / TRADE-OFF: Kriteria asli pengguna tidak dapat dipenuhi persis (misal budget terlalu rendah). DATA KOS DI BAWAH ADALAH ALTERNATIF TERDEKAT/PILIHAN LAIN.',
-        'Jelaskan dengan jujur dan sopan mengapa kriteria asli tidak terpenuhi, lalu tawarkan opsi alternatif terdekat ini secara solutif.',
+        'Catatan Fallback: Kriteria asli belum terpenuhi persis; jelaskan singkat dan tawarkan DATA KOS sebagai alternatif terdekat.',
       );
     }
 
     if (context?.unsupportedRequests && context.unsupportedRequests.length > 0) {
       systemPromptLines.push(
-        `PERHATIAN OUT-OF-SCOPE: Pengguna meminta fasilitas atau hal yang tidak didukung sistem (${context.unsupportedRequests.join(', ')}). Sampaikan secara singkat dan sopan bahwa fitur tersebut tidak tersedia di database kos.`,
+        `Catatan Out-of-Scope: Sampaikan sopan bahwa (${context.unsupportedRequests.join(', ')}) tidak tersedia di database.`,
       );
     }
 
     const systemPrompt = systemPromptLines.join('\n');
 
     const userPrompt = [
-      `Permintaan: "${context.message ?? 'Rekomendasi kos'}"`,
-      `Ditemukan: ${resultCount} kos`,
+      `Query: "${context.message ?? 'Rekomendasi kos'}" (${resultCount} kos)`,
       'DATA KOS:',
       ragDocs,
     ].join('\n');
 
-    const generated = await this.chatCompletion(systemPrompt, userPrompt, 0.3);
+    const generated = await this.chatCompletion(systemPrompt, userPrompt, 0.3, 200);
     if (!generated) {
       return this.fallback.composeReply(params, resultCount, context);
     }
+    this.lastAiMode = 'gemini';
 
-    if (!/estimasi/i.test(generated)) {
-      return `${generated} Klik tombol "Lihat Estimasi Transportasi" pada kartu kos untuk melihat Estimasi rute perjalanan.`;
-    }
-    return generated;
+    const finalReply = !/estimasi/i.test(generated)
+      ? `${generated} Klik tombol "Lihat Estimasi Transportasi" pada kartu kos untuk melihat Estimasi rute perjalanan.`
+      : generated;
+
+    this.setBoundedCache(this.replyCache, cacheKey, finalReply);
+    return finalReply;
   }
 }

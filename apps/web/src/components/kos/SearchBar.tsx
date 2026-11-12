@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Search } from 'lucide-react';
+import { JAKARTA_LOCATION_HUBS } from '@kosmatch/shared';
 import { useDestinations } from '../../api/hooks';
 import { BUDGET_RANGES, COMMUTE_OPTIONS, type SearchValues } from '../../lib/search';
 
@@ -38,12 +39,21 @@ export function SearchBar({ initial, onSubmit }: SearchBarProps) {
           Lokasi Tujuan
         </label>
         <select id="search-destination" value={values.destinationId} onChange={set('destinationId')} className={selectClass}>
-          <option value="">Kampus / Kantor / Stasiun</option>
-          {destinations.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.nama}
-            </option>
-          ))}
+          <option value="">Kampus / Kantor / Kawasan</option>
+          <optgroup label="Kampus, Kantor & Stasiun Utama">
+            {destinations.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.nama}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Koridor & Kawasan Populer (Area Sekitar)">
+            {JAKARTA_LOCATION_HUBS.map((hub) => (
+              <option key={hub.id} value={hub.id}>
+                {hub.name} ({hub.region})
+              </option>
+            ))}
+          </optgroup>
         </select>
       </div>
       <div className="mx-4 h-px bg-line/70 sm:mx-0 sm:h-8 sm:w-px" aria-hidden />

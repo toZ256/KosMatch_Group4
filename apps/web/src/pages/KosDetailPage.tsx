@@ -1,6 +1,6 @@
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ExternalLink, Footprints, MapPin, MessageCircle, Navigation, Star, Train, Bike } from 'lucide-react';
-import type { CommuteEstimate, TransportMode } from '@kosmatch/shared';
+import { resolveLocationQuery, type CommuteEstimate, type TransportMode } from '@kosmatch/shared';
 import { useDestinations, useKos } from '../api/hooks';
 import { BookmarkButton } from '../components/kos/BookmarkButton';
 import { Button } from '../components/ui/Button';
@@ -66,12 +66,25 @@ export function KosDetailPage() {
   }
 
   const isOwnKos = user?.id === kos.ownerId;
+  const defaultDraft = `Halo Bapak/Ibu Pemilik ${kos.namaKos}, saya menemukan kos Anda melalui KosMatch Jakarta. Saya tertarik dan ingin menanyakan apakah kamar tipe ${kos.tipe} masih tersedia untuk periode sewa bulan depan? Terima kasih.`;
+  const ownerWaNumber = (() => {
+    let hash = 0;
+    for (let i = 0; i < kos.id.length; i++) {
+      hash = (hash * 31 + kos.id.charCodeAt(i)) % 9000;
+    }
+    const suffix = String(1000 + Math.abs(hash)).padStart(4, '0');
+    return `628120000${suffix}`;
+  })();
+  const waOwnerUrl = `https://wa.me/${ownerWaNumber}?text=${encodeURIComponent(defaultDraft)}`;
+  const inAppChatUrl = `/chat/${kos.ownerId}?draft=${encodeURIComponent(defaultDraft)}`;
   const chatOwner = () => {
-    if (!user) navigate(`/login?redirect=${encodeURIComponent(`/kos/${kos.id}`)}`);
-    else navigate(`/chat/${kos.ownerId}`);
+    if (!user) navigate(`/login?redirect=${encodeURIComponent(inAppChatUrl)}`);
+    else navigate(inAppChatUrl);
   };
   const hasWalking = kos.commute?.some((c) => c.mode === 'jalan_kaki');
-  const selectedDest = destinations.find((d) => d.id === destinationId);
+  const selectedDest =
+    destinations.find((d) => d.id === destinationId) ??
+    (destinationId ? resolveLocationQuery(destinationId)?.virtualDestination : undefined);
   const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${kos.latitude},${kos.longitude}`)}`;
   const googleMapsDirUrl = selectedDest
     ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(`${kos.latitude},${kos.longitude}`)}&destination=${encodeURIComponent(`${selectedDest.latitude},${selectedDest.longitude}`)}`
@@ -132,9 +145,16 @@ export function KosDetailPage() {
           <div className="mt-6 flex flex-wrap gap-3">
             <BookmarkButton kos={kos} variant="labeled" />
             {!isOwnKos && (
-              <Button size="lg" id="chat-owner" onClick={chatOwner}>
-                <MessageCircle size={17} /> Chat Pemilik
-              </Button>
+              <>
+                <Button size="lg" id="chat-owner" onClick={chatOwner}>
+                  <MessageCircle size={17} /> Chat di Aplikasi
+                </Button>
+                <a href={waOwnerUrl} target="_blank" rel="noopener noreferrer" data-testid="detail-whatsapp-link">
+                  <Button size="lg" variant="accent" type="button">
+                    <MessageCircle size={17} /> Chat via WhatsApp <ExternalLink size={14} />
+                  </Button>
+                </a>
+              </>
             )}
             <a href={googleMapsUrl} target="_blank" rel="noopener noreferrer">
               <Button size="lg" variant="outline" type="button">
@@ -165,6 +185,9 @@ export function KosDetailPage() {
             }}
           >
             <option value="">Pilih kampus / kantor / stasiun</option>
+            {selectedDest && !destinations.some((d) => d.id === selectedDest.id) && (
+              <option value={selectedDest.id}>{selectedDest.nama} (Kawasan Sekitar)</option>
+            )}
             {destinations.map((d) => (
               <option key={d.id} value={d.id}>{d.nama}</option>
             ))}

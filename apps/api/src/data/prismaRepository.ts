@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
-import type { ChatHistory, Destination, Kos, TipeKos } from '@kosmatch/shared';
+import {
+  matchKosToLocation,
+  resolveLocationQuery,
+  type ChatHistory,
+  type Destination,
+  type Kos,
+  type TipeKos,
+} from '@kosmatch/shared';
 import type { KosFilter, Repository } from './repository';
 
 type PrismaKos = Prisma.KosGetPayload<Record<string, never>>;
@@ -116,19 +123,81 @@ export class PrismaRepository implements Repository {
       if (filter?.tipe) {
         where.tipe = filter.tipe;
       }
-      if (filter?.q?.trim()) {
-        const q = filter.q.trim();
-        where.OR = [
-          { namaKos: { contains: q, mode: 'insensitive' } },
-          { area: { contains: q, mode: 'insensitive' } },
-          { region: { contains: q, mode: 'insensitive' } },
-          { kecamatan: { contains: q, mode: 'insensitive' } },
-        ];
+      const rawQ = filter?.q?.trim();
+      const resolvedLoc = rawQ ? resolveLocationQuery(rawQ) : null;
+
+      if (rawQ) {
+        if (resolvedLoc) {
+          const latDelta = resolvedLoc.radiusKm / 111.0;
+          const specificTerms = Array.from(
+            new Set([
+              rawQ,
+              resolvedLoc.hub.name,
+              ...resolvedLoc.nearbyAreas.filter(
+                (a) =>
+                  !a.toLowerCase().startsWith('jakarta ') ||
+                  resolvedLoc.hub.id.startsWith('wilayah-jakarta-'),
+              ),
+            ]),
+          );
+
+          const orClauses: Prisma.KosWhereInput[] = [
+            {
+              lat: {
+                gte: resolvedLoc.latitude - latDelta,
+                lte: resolvedLoc.latitude + latDelta,
+              },
+              lng: {
+                gte: resolvedLoc.longitude - latDelta,
+                lte: resolvedLoc.longitude + latDelta,
+              },
+            },
+          ];
+
+          for (const term of specificTerms) {
+            orClauses.push(
+              { namaKos: { contains: term, mode: 'insensitive' } },
+              { area: { contains: term, mode: 'insensitive' } },
+              { kecamatan: { contains: term, mode: 'insensitive' } },
+              { region: { contains: term, mode: 'insensitive' } },
+            );
+          }
+
+          where.OR = orClauses;
+        } else {
+          where.OR = [
+            { namaKos: { contains: rawQ, mode: 'insensitive' } },
+            { area: { contains: rawQ, mode: 'insensitive' } },
+            { region: { contains: rawQ, mode: 'insensitive' } },
+            { kecamatan: { contains: rawQ, mode: 'insensitive' } },
+            { fasilitas: { contains: rawQ, mode: 'insensitive' } },
+          ];
+        }
       }
       const items = await this.prisma.kos.findMany({
         where,
         orderBy: { createdAt: 'desc' },
       });
+
+      if (resolvedLoc) {
+        return items
+          .map((row) => {
+            const domain = toDomainKos(row);
+            const locMatch = matchKosToLocation(
+              { ...domain, region: row.region, kecamatan: row.kecamatan },
+              resolvedLoc,
+            );
+            return { domain, locMatch };
+          })
+          .filter(
+            ({ domain, locMatch }) =>
+              locMatch.matches ||
+              (rawQ ? domain.namaKos.toLowerCase().includes(rawQ.toLowerCase()) : false),
+          )
+          .sort((a, b) => a.locMatch.relevanceScore - b.locMatch.relevanceScore)
+          .map(({ domain }) => domain);
+      }
+
       return items.map(toDomainKos);
     },
     get: async (id) => {

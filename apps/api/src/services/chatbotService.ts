@@ -1,16 +1,25 @@
 import {
   CHATBOT_MAX_RESULTS,
-  ChatParamsSchema,
+  matchKosToLocation,
+  resolveLocationQuery,
   type ChatbotResponse,
   type ChatbotResultItem,
   type CommuteEstimate,
   type Destination,
   type Kos,
+  type ResolvedLocation,
 } from '@kosmatch/shared';
 import type { Repository } from '../data/repository';
-import type { CommuteProvider } from '../providers/commute';
+import { defaultGeocoder, type CommuteProvider } from '../providers/commute';
 import { haversineKm } from '../providers/commute/MockCommuteProvider';
-import type { LlmProvider } from '../providers/llm';
+import {
+  AgentOrchestrator,
+  extractMentionedIndices,
+  extractMentionedKosIds,
+  hasExplicitAgentToolIntent,
+  type AgentAskOptions,
+  type LlmProvider,
+} from '../providers/llm';
 
 const MAX_COMMUTE_CANDIDATES = 12;
 
@@ -59,9 +68,10 @@ export function computeRagRelevanceBonus(kos: Kos, message: string, areaKeywords
   }
 
   if (areaKeywords && areaKeywords.length > 0) {
-    for (const kw of areaKeywords) {
-      if (kos.area.toLowerCase().includes(kw.toLowerCase()) || kos.namaKos.toLowerCase().includes(kw.toLowerCase())) {
-        bonus += 3;
+    for (let i = 0; i < areaKeywords.length; i++) {
+      const kw = areaKeywords[i]!.toLowerCase();
+      if (kos.area.toLowerCase().includes(kw) || kos.namaKos.toLowerCase().includes(kw)) {
+        bonus += i === 0 ? 5.5 : i === 1 ? 4.5 : 3;
         break;
       }
     }
@@ -120,16 +130,18 @@ function selectTopCandidates(
   message: string,
   limit: number,
   areaKeywords?: string[],
+  resolvedAreaLoc?: ResolvedLocation | null,
 ): Kos[] {
-  if (kosList.length <= limit) {
-    return kosList;
-  }
   return [...kosList]
     .map((kos) => {
       const distKm = dest ? haversineKm(kos.latitude, kos.longitude, dest.latitude, dest.longitude) : 0;
       const ragBonus = computeRagRelevanceBonus(kos, message, areaKeywords);
-      // Prioritize proximity to destination, rating, and RAG relevance over raw cheapness
-      const preScore = distKm * 4 + kos.hargaSewa / 1_000_000 - kos.rating * 1.2 - ragBonus;
+      const locMatch = resolvedAreaLoc ? matchKosToLocation(kos, resolvedAreaLoc) : null;
+      const corridorBonus = locMatch
+        ? (locMatch.isPrimaryMatch ? 12 : 0) + (locMatch.isNearbyAreaMatch ? 6 : 0) + (locMatch.isWithinRadius ? 4 : 0)
+        : 0;
+      // Prioritize proximity to destination/corridor, corridor sub-area match, rating, and RAG relevance
+      const preScore = distKm * 4 + kos.hargaSewa / 1_000_000 - kos.rating * 1.2 - ragBonus - corridorBonus;
       return { kos, preScore };
     })
     .sort((a, b) => a.preScore - b.preScore)
@@ -138,46 +150,89 @@ function selectTopCandidates(
 }
 
 export class ChatbotService {
+  private readonly orchestrator: AgentOrchestrator;
+
   constructor(
     private readonly repo: Repository,
     private readonly llm: LlmProvider,
     private readonly commute: CommuteProvider,
-  ) {}
+  ) {
+    this.orchestrator = new AgentOrchestrator(repo, llm, commute);
+  }
 
-  async ask(message: string): Promise<ChatbotResponse> {
+  async ask(message: string, options?: AgentAskOptions): Promise<ChatbotResponse> {
+    // Layer 1: Input Guardrails (Prompt Injection, Out-of-Scope Firewall, Toxic Filter, PII Redaction)
+    const guardrailCheck = this.orchestrator.runInputGuardrails(message);
+    if (guardrailCheck.blockedResponse) {
+      return guardrailCheck.blockedResponse;
+    }
+
+    const { sanitizedMessage, piiRedacted } = guardrailCheck;
+    const piiMeta = piiRedacted
+      ? {
+          guardrailNotice: 'Data sensitif (PII) pada pesan Anda telah disensor otomatis demi keamanan privasi.',
+          sanitizedMessage,
+        }
+      : {};
+
     const destinations = await this.repo.destinations.list();
-    // Validate provider output before it is used for querying.
-    const params = ChatParamsSchema.parse(await this.llm.extractParams(message, destinations));
+    const allKos = await this.repo.kos.list();
+    const validKosMap = new Map<string, Kos>(allKos.map((k) => [k.id, k]));
+
+    // Validate provider output via Layer 4 Circuit Breaker before querying.
+    const params = await this.orchestrator.safeExtractParams(sanitizedMessage, destinations);
 
     const hasAnyCriteria = Boolean(
       params.destinationId ||
         params.maxBudgetMonthly ||
         params.minBudgetMonthly ||
+        params.tipe ||
         (params.fasilitas && params.fasilitas.length > 0) ||
         (params.areaKeywords && params.areaKeywords.length > 0) ||
         (params.unsupportedRequests && params.unsupportedRequests.length > 0),
     );
 
-    // Not enough information: ask for clarification (not an error).
-    if (!hasAnyCriteria) {
+    const explicitToolIntent = hasExplicitAgentToolIntent(sanitizedMessage);
+    const mentionedKosIds = extractMentionedKosIds(sanitizedMessage, allKos);
+    const mentionedIndices = extractMentionedIndices(sanitizedMessage);
+
+    // Not enough information and no agentic tool intent: ask for clarification (not an error).
+    if (!hasAnyCriteria && !explicitToolIntent && mentionedKosIds.length === 0) {
       return {
-        reply: await this.llm.composeReply(params, 0, { message, results: [], destination: null }),
+        reply: await this.orchestrator.safeComposeReply(params, 0, {
+          message: sanitizedMessage,
+          results: [],
+          destination: null,
+        }),
         params,
         results: [],
         noResults: false,
+        actions: [],
+        aiMode: this.orchestrator.getLastAiMode(),
+        ...piiMeta,
       };
     }
 
     const hasUnsupportedDest = params.unsupportedRequests?.some(
-      (u) => u.startsWith('Kampus ') || u.startsWith('Titik ') || u.startsWith('Universitas ') || u.includes('Institute'),
+      (u) =>
+        u.startsWith('Kampus ') ||
+        u.startsWith('Kampus/Titik ') ||
+        u.startsWith('Titik ') ||
+        u.startsWith('Universitas ') ||
+        u.includes('Institute'),
     );
 
     // If user asked for an unregistered campus/destination and gave no valid area in Jabodetabek:
     // Do not guess or pick random kos from across the region. Explain directly that it is not registered.
-    if (hasUnsupportedDest && !params.destinationId && (!params.areaKeywords || params.areaKeywords.length === 0)) {
+    if (
+      hasUnsupportedDest &&
+      !params.destinationId &&
+      (!params.areaKeywords || params.areaKeywords.length === 0) &&
+      !explicitToolIntent
+    ) {
       return {
-        reply: await this.llm.composeReply(params, 0, {
-          message,
+        reply: await this.orchestrator.safeComposeReply(params, 0, {
+          message: sanitizedMessage,
           results: [],
           destination: null,
           unsupportedRequests: params.unsupportedRequests,
@@ -185,7 +240,66 @@ export class ChatbotService {
         params,
         results: [],
         noResults: false,
+        actions: [],
+        aiMode: this.orchestrator.getLastAiMode(),
+        ...piiMeta,
       };
+    }
+
+    // Handle direct tool invocation without search criteria (e.g. "Tolong simpan kos nomor 1 dan 3", "Bandingkan Kos Andalan UI dan Kos Tebet Hijau", "Chat WA pemilik Kos Andalan UI")
+    if (!hasAnyCriteria && (explicitToolIntent || mentionedKosIds.length > 0)) {
+      const targetIds =
+        mentionedKosIds.length > 0
+          ? mentionedKosIds
+          : mentionedIndices.length > 0
+            ? mentionedIndices.map((idx) => allKos[idx - 1]?.id).filter((id): id is string => typeof id === 'string')
+            : allKos.slice(0, 2).map((k) => k.id);
+
+      const defaultDest = destinations[0] ?? null;
+      const directResults: ChatbotResultItem[] = await Promise.all(
+        targetIds.slice(0, CHATBOT_MAX_RESULTS).map(async (id) => {
+          const kos = validKosMap.get(id)!;
+          const commute = defaultDest ? await this.commute.estimate(kos, defaultDest) : [];
+          return { kos, commute };
+        }),
+      );
+
+      const proposedCalls = await this.orchestrator.safeDetectToolCalls(sanitizedMessage, {
+        results: directResults,
+        allKos,
+        destinations,
+        params,
+      });
+
+      const { actions, toolReplyNotes } = await this.orchestrator.executeTools(proposedCalls, {
+        validKosMap,
+        results: directResults,
+        allKos,
+        destinations,
+        params,
+        userId: options?.userId,
+      });
+
+      const directReply =
+        toolReplyNotes.length > 0
+          ? `${toolReplyNotes.join(' ')} Estimasi waktu dan biaya perjalanan bersifat perkiraan.`
+          : await this.orchestrator.safeComposeReply(params, directResults.length, {
+              message: sanitizedMessage,
+              results: directResults,
+              destination: defaultDest,
+            });
+
+      return this.orchestrator.applyOutputGuardrails(
+        {
+          reply: directReply,
+          params,
+          results: directResults,
+          noResults: directResults.length === 0,
+          actions,
+          ...piiMeta,
+        },
+        validKosMap,
+      );
     }
 
     const rawKosList = await this.repo.kos.list({
@@ -194,8 +308,14 @@ export class ChatbotService {
       tipe: params.tipe,
     });
 
-    // Enforce strict budget range, required facilities, electricity, and area filtering extracted by AI
-    const filteredKosList = rawKosList.filter((kos) => {
+    const resolvedAreaLoc = !params.destinationId
+      ? resolveLocationQuery(sanitizedMessage) ??
+        (params.areaKeywords?.[0] ? resolveLocationQuery(params.areaKeywords[0]) : null) ??
+        (params.areaKeywords?.[0] ? await defaultGeocoder.resolve(params.areaKeywords[0]) : null)
+      : null;
+
+    // Enforce strict budget range, required facilities, electricity, and area/corridor filtering
+    const baseFilteredKos = rawKosList.filter((kos) => {
       if (params.minBudgetMonthly !== undefined && kos.hargaSewa < params.minBudgetMonthly) return false;
       if (params.maxBudgetMonthly !== undefined && kos.hargaSewa > params.maxBudgetMonthly) return false;
       if (params.fasilitas && params.fasilitas.length > 0) {
@@ -205,15 +325,44 @@ export class ChatbotService {
       if (params.listrikTermasuk === true) {
         if (!kos.deskripsi.toLowerCase().includes('termasuk listrik')) return false;
       }
-      if (params.areaKeywords && params.areaKeywords.length > 0 && !params.destinationId) {
-        const hay = `${kos.area} ${kos.namaKos} ${kos.deskripsi}`.toLowerCase();
-        const matchesArea = params.areaKeywords.some((kw) => hay.includes(kw.toLowerCase()));
-        if (!matchesArea) return false;
-      }
       return true;
     });
 
+    let filteredKosList = baseFilteredKos;
+    if (!params.destinationId && ((params.areaKeywords && params.areaKeywords.length > 0) || resolvedAreaLoc)) {
+      // First try strict corridor/sub-area + spatial radius match so specific surrounding districts win
+      const strictAreaMatches = baseFilteredKos.filter((kos) => {
+        if (resolvedAreaLoc && matchKosToLocation(kos, resolvedAreaLoc).matches) {
+          return true;
+        }
+        if (params.areaKeywords && params.areaKeywords.length > 0) {
+          const hay = `${kos.area} ${kos.namaKos} ${kos.deskripsi}`.toLowerCase();
+          const specificKws = params.areaKeywords.filter(
+            (kw) =>
+              !kw.toLowerCase().startsWith('jakarta ') ||
+              resolvedAreaLoc?.hub.id.startsWith('wilayah-jakarta-'),
+          );
+          if (specificKws.some((kw) => hay.includes(kw.toLowerCase()))) {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (strictAreaMatches.length > 0) {
+        filteredKosList = strictAreaMatches;
+      } else if (params.areaKeywords && params.areaKeywords.length > 0) {
+        // Fallback to broad city/region match (e.g. 'Jakarta Selatan') if no specific sub-area matched
+        filteredKosList = baseFilteredKos.filter((kos) => {
+          const hay = `${kos.area} ${kos.namaKos} ${kos.deskripsi}`.toLowerCase();
+          return params.areaKeywords!.some((kw) => hay.includes(kw.toLowerCase()));
+        });
+      }
+    }
+
     const dest = params.destinationId ? await this.repo.destinations.get(params.destinationId) : null;
+    // Use resolved corridor/area anchor coordinates as virtual destination when no catalog destinationId is set
+    const effectiveDest = dest ?? (!hasUnsupportedDest ? resolvedAreaLoc?.virtualDestination ?? null : null);
 
     let isFallback = false;
     let fallbackReason: string | undefined;
@@ -222,14 +371,14 @@ export class ChatbotService {
     if (filteredKosList.length > 0) {
       candidates = selectTopCandidates(
         filteredKosList,
-        dest,
-        message,
+        effectiveDest,
+        sanitizedMessage,
         MAX_COMMUTE_CANDIDATES,
         params.areaKeywords,
+        resolvedAreaLoc,
       );
     } else {
-      // 3. Fallback Strategy: Never leave an empty screen (0 results).
-      // Automatically relax criteria to find nearest/most affordable alternatives.
+      // Fallback Strategy: Never leave an empty screen (0 results).
       isFallback = true;
       if (params.maxBudgetMonthly) {
         fallbackReason = 'budget_terlalu_rendah';
@@ -243,12 +392,11 @@ export class ChatbotService {
         fallbackReason = 'kriteria_terlalu_ketat';
       }
 
-      // Fetch all kos matching type (or all if not specified)
-      const allKos = await this.repo.kos.list({ tipe: params.tipe });
-      const alternatives = [...allKos].sort((a, b) => {
-        if (dest) {
-          const distA = haversineKm(a.latitude, a.longitude, dest.latitude, dest.longitude);
-          const distB = haversineKm(b.latitude, b.longitude, dest.latitude, dest.longitude);
+      const allMatchingType = await this.repo.kos.list({ tipe: params.tipe });
+      const alternatives = [...allMatchingType].sort((a, b) => {
+        if (effectiveDest) {
+          const distA = haversineKm(a.latitude, a.longitude, effectiveDest.latitude, effectiveDest.longitude);
+          const distB = haversineKm(b.latitude, b.longitude, effectiveDest.latitude, effectiveDest.longitude);
           return distA - distB || a.hargaSewa - b.hargaSewa;
         }
         return a.hargaSewa - b.hargaSewa || b.rating - a.rating;
@@ -260,14 +408,30 @@ export class ChatbotService {
     // Evaluate commute in parallel (Promise.all) instead of sequentially so response is fast (<1.5s)
     const evaluated = await Promise.all(
       candidates.map(async (kos): Promise<{ item: ChatbotResultItem; score: number } | null> => {
-        const ragBonus = computeRagRelevanceBonus(kos, message, params.areaKeywords);
-        if (!dest) {
+        const ragBonus = computeRagRelevanceBonus(kos, sanitizedMessage, params.areaKeywords);
+        const locMatch = resolvedAreaLoc ? matchKosToLocation(kos, resolvedAreaLoc) : null;
+        const corridorBonus = locMatch
+          ? (locMatch.isPrimaryMatch ? 8 : 0) + (locMatch.isNearbyAreaMatch ? 4 : 0) + (locMatch.isWithinRadius ? 2 : 0)
+          : 0;
+
+        if (!effectiveDest) {
+          const closestDest =
+            destinations.length > 0
+              ? destinations.reduce((best, cur) => {
+                  const dBest = haversineKm(kos.latitude, kos.longitude, best.latitude, best.longitude);
+                  const dCur = haversineKm(kos.latitude, kos.longitude, cur.latitude, cur.longitude);
+                  return dCur < dBest ? cur : best;
+                })
+              : null;
+          const fallbackEstimates = closestDest
+            ? await this.commute.estimate(kos, closestDest, params.preferredMode)
+            : [];
           return {
-            item: { kos, commute: [] },
-            score: kos.hargaSewa / 500_000 - kos.rating - ragBonus,
+            item: { kos, commute: fallbackEstimates },
+            score: kos.hargaSewa / 500_000 - kos.rating - ragBonus - corridorBonus,
           };
         }
-        const estimates = await this.commute.estimate(kos, dest, params.preferredMode);
+        const estimates = await this.commute.estimate(kos, effectiveDest, params.preferredMode);
         // In fallback mode, provide all valid routes without eliminating candidates
         const matching = isFallback
           ? estimates
@@ -282,7 +446,7 @@ export class ChatbotService {
         if (!best) return null;
         return {
           item: { kos, commute: matching },
-          score: best.durationMin + kos.hargaSewa / 500_000 - kos.rating * 0.5 - ragBonus * 0.5,
+          score: best.durationMin + kos.hargaSewa / 500_000 - kos.rating * 0.5 - ragBonus * 0.5 - corridorBonus,
         };
       }),
     );
@@ -291,8 +455,25 @@ export class ChatbotService {
     scored.sort((a, b) => a.score - b.score);
     const results = scored.slice(0, CHATBOT_MAX_RESULTS).map((s) => s.item);
 
-    const reply = await this.llm.composeReply(params, results.length, {
-      message,
+    // Layer 2: Detect & execute agentic tool calls
+    const proposedCalls = await this.orchestrator.safeDetectToolCalls(sanitizedMessage, {
+      results,
+      allKos,
+      destinations,
+      params,
+    });
+
+    const { actions, toolReplyNotes } = await this.orchestrator.executeTools(proposedCalls, {
+      validKosMap,
+      results,
+      allKos,
+      destinations,
+      params,
+      userId: options?.userId,
+    });
+
+    const baseReply = await this.orchestrator.safeComposeReply(params, results.length, {
+      message: sanitizedMessage,
       results,
       destination: dest,
       isFallback,
@@ -300,14 +481,23 @@ export class ChatbotService {
       unsupportedRequests: params.unsupportedRequests,
     });
 
-    return {
-      reply,
-      params,
-      results,
-      noResults: results.length === 0,
-      isFallback,
-      fallbackReason,
-      unsupportedRequests: params.unsupportedRequests,
-    };
+    const combinedReply =
+      toolReplyNotes.length > 0 ? `${baseReply}\n\n${toolReplyNotes.join(' ')}` : baseReply;
+
+    // Layer 3: Output & Grounding Guardrails
+    return this.orchestrator.applyOutputGuardrails(
+      {
+        reply: combinedReply,
+        params,
+        results,
+        noResults: results.length === 0,
+        isFallback,
+        fallbackReason,
+        unsupportedRequests: params.unsupportedRequests,
+        actions,
+        ...piiMeta,
+      },
+      validKosMap,
+    );
   }
 }

@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import {
   BookmarkInputSchema,
-  ChatbotInputSchema,
   CommuteQuerySchema,
   KosFormSchema,
   KosQuerySchema,
@@ -21,6 +20,7 @@ import type { AuthService } from '../services/authService';
 import type { BookmarkService, ChatService } from '../services/chatAndBookmarkService';
 import type { ChatbotService } from '../services/chatbotService';
 import type { KosService } from '../services/kosService';
+import { createChatbotRouter } from './chatbot';
 
 export interface Services {
   auth: AuthService;
@@ -93,14 +93,8 @@ export function createApiRouter(repo: Repository, services: Services, jwtSecret:
     }),
   );
 
-  /* ---- chatbot ---- */
-  router.post(
-    '/chatbot',
-    auth,
-    requireRole('tenant'),
-    validate(ChatbotInputSchema),
-    asyncHandler(async (req, res) => ok(res, await services.chatbot.ask((req.body as { message: string }).message))),
-  );
+  /* ---- chatbot (Agentic + 4-Layer Guardrails) ---- */
+  router.use('/chatbot', createChatbotRouter(services.chatbot, auth));
 
   /* ---- bookmarks ---- */
   router.get(

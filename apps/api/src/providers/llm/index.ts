@@ -19,5 +19,19 @@ export function createLlmProvider(modeOrMock: boolean | string, options?: RagLlm
   throw new Error('Provider belum diimplementasikan');
 }
 
-export type { LlmProvider, RagContext } from './LlmProvider';
-export { RagLlmProvider, type RagLlmOptions } from './RagLlmProvider';
+export {
+  AgentOrchestrator,
+  buildSearchFilterUrl,
+  buildWhatsAppDraftMessage,
+  deriveSafeOwnerWhatsAppNumber,
+  type AgentAskOptions,
+} from './AgentOrchestrator';
+export type { LlmProvider, ProposedToolCall, RagContext, ToolDetectionContext } from './LlmProvider';
+export {
+  MockLlmProvider,
+  detectWhatsAppIntent,
+  extractMentionedIndices,
+  extractMentionedKosIds,
+  hasExplicitAgentToolIntent,
+} from './MockLlmProvider';
+export { RagLlmProvider, shouldBypassLlmExtraction, type RagLlmOptions } from './RagLlmProvider';

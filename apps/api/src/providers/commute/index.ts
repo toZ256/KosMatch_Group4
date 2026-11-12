@@ -15,3 +15,4 @@ export function createCommuteProvider(modeOrMock: boolean | string, options?: Os
 
 export type { CommuteProvider } from './CommuteProvider';
 export { OsrmCommuteProvider, type OsrmOptions } from './OsrmCommuteProvider';
+export { NominatimGeocoder, defaultGeocoder, type NominatimGeocoderOptions } from './NominatimGeocoder';

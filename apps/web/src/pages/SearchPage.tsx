@@ -5,12 +5,18 @@ import {
   ArrowUpNarrowWide,
   ChevronLeft,
   ChevronRight,
+  MapPin,
   Search,
   SearchX,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
-import type { KosWithCommute } from '@kosmatch/shared';
+import {
+  JAKARTA_LOCATION_HUBS,
+  getLocationSuggestions,
+  resolveLocationQuery,
+  type KosWithCommute,
+} from '@kosmatch/shared';
 import { useDestinations, useKosList } from '../api/hooks';
 import { KosCard, KosCardSkeleton } from '../components/kos/KosCard';
 import { Button } from '../components/ui/Button';
@@ -100,12 +106,20 @@ export function SearchPage() {
     [fasilitasParam],
   );
 
-  // Local state for top search bar input
+  // Local state for top search bar input & location suggestions dropdown
   const [searchInput, setSearchInput] = useState(q);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   useEffect(() => {
     setSearchInput(q);
   }, [q]);
+
+  const resolvedLocation = useMemo(
+    () => (q ? resolveLocationQuery(q) : destinationId ? resolveLocationQuery(destinationId) : null),
+    [q, destinationId],
+  );
+  const locationSuggestions = useMemo(() => getLocationSuggestions(searchInput, 6), [searchInput]);
+  const hasCommuteAnchor = Boolean(destinationId || resolvedLocation);
 
   const { data, isLoading, isError, refetch } = useKosList({
     destinationId: destinationId || undefined,
@@ -117,8 +131,8 @@ export function SearchPage() {
   const filteredResults = useMemo(
     () =>
       (data ?? []).filter((k) => {
-        // Commute filtering: only evaluated when destinationId is set
-        if (destinationId) {
+        // Commute filtering: evaluated when either destinationId or a resolved location hub (e.g. TB Simatupang) is active
+        if (hasCommuteAnchor) {
           // Motor / Ojek filter
           if (commuteMotor) {
             const ojek = k.commute?.find((c) => c.mode === 'ojek');
@@ -144,7 +158,7 @@ export function SearchPage() {
 
         return true;
       }),
-    [data, destinationId, commuteMotor, commuteTransit, maxCommuteLegacy, selectedFacilities],
+    [data, hasCommuteAnchor, commuteMotor, commuteTransit, maxCommuteLegacy, selectedFacilities],
   );
 
   // Apply sorting on filtered results
@@ -193,12 +207,14 @@ export function SearchPage() {
       next.set('destinationId', newDest);
     } else {
       next.delete('destinationId');
-      next.delete('commuteMotor');
-      next.delete('commuteTransit');
-      next.delete('maxCommuteMin');
-      if (sortBy === 'waktu_ojek' || sortBy === 'waktu_transit') {
-        next.delete('sortBy');
-        next.delete('sortDir');
+      if (!resolvedLocation) {
+        next.delete('commuteMotor');
+        next.delete('commuteTransit');
+        next.delete('maxCommuteMin');
+        if (sortBy === 'waktu_ojek' || sortBy === 'waktu_transit') {
+          next.delete('sortBy');
+          next.delete('sortDir');
+        }
       }
     }
     next.delete('page');
@@ -241,15 +257,32 @@ export function SearchPage() {
 
   const handleSearchSubmit = (e: FormEvent) => {
     e.preventDefault();
+    setShowSuggestions(false);
     setParam('q', searchInput.trim());
+  };
+
+  const handleSelectSuggestion = (queryValue: string) => {
+    setSearchInput(queryValue);
+    setShowSuggestions(false);
+    setParam('q', queryValue);
   };
 
   const handleResetFilters = () => {
     setSearchInput('');
+    setShowSuggestions(false);
     navigate('/cari');
   };
 
-  const destName = destinations.find((d) => d.id === destinationId)?.nama;
+  const destName =
+    destinations.find((d) => d.id === destinationId)?.nama ??
+    (resolvedLocation ? resolvedLocation.displayName : undefined);
+  const specificNearbyAreas = useMemo(
+    () =>
+      resolvedLocation
+        ? resolvedLocation.nearbyAreas.filter((a) => !a.toLowerCase().startsWith('jakarta '))
+        : [],
+    [resolvedLocation],
+  );
   const isFilterActive = Boolean(
     destinationId ||
       commuteMotor ||
@@ -267,8 +300,8 @@ export function SearchPage() {
     <div className="page-container py-8">
       <h1 className="sr-only">Cari Kos</h1>
 
-      {/* TOP: Dedicated Clean Search Bar */}
-      <div className="mx-auto max-w-3xl">
+      {/* TOP: Dedicated Clean Search Bar with Location & Corridor Suggestions */}
+      <div className="relative mx-auto max-w-3xl">
         <form
           role="search"
           aria-label="Pencarian kata kunci kos"
@@ -280,8 +313,15 @@ export function SearchPage() {
             <input
               type="text"
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Cari nama kos, area, atau fasilitas... (mis. Kemang, Tebet, AC)"
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => {
+                setTimeout(() => setShowSuggestions(false), 180);
+              }}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+                setShowSuggestions(true);
+              }}
+              placeholder="Cari koridor, kawasan, jalan, atau fasilitas... (mis. TB Simatupang, Blok M, Kemang)"
               className="w-full bg-transparent text-sm text-ink placeholder:text-muted focus:outline-none"
             />
             {searchInput && (
@@ -302,6 +342,111 @@ export function SearchPage() {
             Cari
           </Button>
         </form>
+
+        {/* Location & Corridor Quick Suggestions Dropdown */}
+        {showSuggestions && locationSuggestions.length > 0 && (
+          <div
+            data-testid="location-suggestions-dropdown"
+            className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-3xl border border-line/90 bg-surface p-2 shadow-float"
+          >
+            <div className="flex items-center justify-between px-3 py-1.5 text-[11px] font-bold text-muted">
+              <span>Rekomendasi Kawasan & Koridor Populer (beserta area sekitar)</span>
+              <span>OpenStreetMap / Gazetteer</span>
+            </div>
+            <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+              {locationSuggestions.map((sug) => (
+                <button
+                  key={sug.id}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleSelectSuggestion(sug.queryValue);
+                  }}
+                  className="flex items-start gap-2.5 rounded-2xl px-3 py-2 text-left transition hover:bg-bg"
+                >
+                  <MapPin size={15} className="mt-0.5 shrink-0 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-xs font-bold text-ink">{sug.label}</span>
+                      <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[9px] font-bold text-ink">
+                        {sug.categoryLabel}
+                      </span>
+                    </div>
+                    <p className="truncate text-[11px] text-muted">
+                      Sekitar: {sug.nearbyPreview}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Active Resolved Location & Surrounding Sub-Areas Parameter Banner */}
+        {resolvedLocation && (
+          <div
+            data-testid="resolved-location-banner"
+            className="mt-3 rounded-3xl border border-accent/40 bg-surface px-4 py-3 shadow-card"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-primary">
+                  <MapPin size={14} />
+                </span>
+                <div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs font-extrabold text-ink">
+                      Kawasan: {resolvedLocation.displayName}
+                    </span>
+                    <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-bold text-ink">
+                      {resolvedLocation.region}
+                    </span>
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                      Radius Cakupan &le; {resolvedLocation.radiusKm} km
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted">
+                    Menampilkan kos di {resolvedLocation.displayName} sekaligus area & jalan sekitarnya. Klik filter daerah di bawah untuk mempersempit:
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {specificNearbyAreas.length > 0 && (
+              <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-line/70 pt-2.5">
+                <span className="mr-1 text-[11px] font-bold text-muted">Daerah Sekitar:</span>
+                <button
+                  type="button"
+                  onClick={() => handleSelectSuggestion(resolvedLocation.hub.name.split('/')[0]!.split('&')[0]!.trim())}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition ${
+                    q.toLowerCase() === resolvedLocation.hub.name.split('/')[0]!.split('&')[0]!.trim().toLowerCase()
+                      ? 'bg-primary text-white shadow-xs'
+                      : 'border border-line bg-bg/70 text-ink hover:border-primary hover:text-primary'
+                  }`}
+                >
+                  Semua Sekitar {resolvedLocation.hub.name.split('/')[0]!.split('&')[0]!.trim()}
+                </button>
+                {specificNearbyAreas.map((areaName) => {
+                  const isSelected = q.toLowerCase() === areaName.toLowerCase();
+                  return (
+                    <button
+                      key={areaName}
+                      type="button"
+                      onClick={() => handleSelectSuggestion(areaName)}
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                        isSelected
+                          ? 'bg-primary text-white shadow-xs'
+                          : 'border border-line bg-surface text-ink hover:border-primary hover:text-primary'
+                      }`}
+                    >
+                      {areaName}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[290px_1fr]">
@@ -326,38 +471,47 @@ export function SearchPage() {
           <div className="space-y-4">
             {/* 1. Lokasi Tujuan */}
             <Select
-              label="Lokasi Tujuan (Kampus/Kantor)"
+              label="Lokasi Tujuan (Kampus/Kantor/Kawasan)"
               value={destinationId}
               onChange={(e) => handleDestinationChange(e.target.value)}
             >
               <option value="">Semua Lokasi / Destinasi</option>
-              {destinations.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.nama}
-                </option>
-              ))}
+              <optgroup label="Kampus, Kantor & Stasiun Utama">
+                {destinations.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nama}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Koridor & Kawasan Populer (Area Sekitar)">
+                {JAKARTA_LOCATION_HUBS.map((hub) => (
+                  <option key={hub.id} value={hub.id}>
+                    {hub.name} ({hub.region})
+                  </option>
+                ))}
+              </optgroup>
             </Select>
 
-            {/* 2. Waktu Tempuh Maks (Terkunci jika Lokasi Tujuan belum dipilih) */}
+            {/* 2. Waktu Tempuh Maks (Aktif jika Lokasi Tujuan atau Kawasan Pencarian dipilih) */}
             <div
               className={`space-y-2.5 rounded-2xl border p-3 transition ${
-                destinationId
+                hasCommuteAnchor
                   ? 'border-line/90 bg-bg/50'
                   : 'border-dashed border-line/70 bg-bg/30 opacity-70'
               }`}
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-ink">Waktu Tempuh Maksimal</span>
-                {!destinationId && (
+                {!hasCommuteAnchor && (
                   <span className="rounded-full bg-line px-2 py-0.5 text-[10px] font-semibold text-muted">
                     Terkunci
                   </span>
                 )}
               </div>
 
-              {!destinationId ? (
+              {!hasCommuteAnchor ? (
                 <p className="text-[11px] leading-tight text-muted">
-                  Pilih <strong>Lokasi Tujuan</strong> terlebih dahulu untuk menyaring berdasarkan waktu tempuh.
+                  Pilih <strong>Lokasi Tujuan</strong> atau ketik nama kawasan (mis. TB Simatupang) untuk menyaring waktu tempuh.
                 </p>
               ) : (
                 <p className="text-[11px] leading-tight text-muted">
@@ -368,7 +522,7 @@ export function SearchPage() {
               <div className="space-y-2">
                 <Select
                   label="Motor / Ojek"
-                  disabled={!destinationId}
+                  disabled={!hasCommuteAnchor}
                   value={commuteMotor?.toString() ?? ''}
                   onChange={(e) => setParam('commuteMotor', e.target.value)}
                 >
@@ -382,7 +536,7 @@ export function SearchPage() {
 
                 <Select
                   label="Kereta / Transit"
-                  disabled={!destinationId}
+                  disabled={!hasCommuteAnchor}
                   value={commuteTransit?.toString() ?? ''}
                   onChange={(e) => setParam('commuteTransit', e.target.value)}
                 >
@@ -528,11 +682,11 @@ export function SearchPage() {
                 >
                   <option value="default">Rekomendasi</option>
                   <option value="harga">Harga Sewa</option>
-                  <option value="waktu_ojek" disabled={!destinationId}>
-                    Waktu Tempuh (Ojek) {!destinationId ? '(butuh destinasi)' : ''}
+                  <option value="waktu_ojek" disabled={!hasCommuteAnchor}>
+                    Waktu Tempuh (Ojek) {!hasCommuteAnchor ? '(butuh destinasi/kawasan)' : ''}
                   </option>
-                  <option value="waktu_transit" disabled={!destinationId}>
-                    Waktu Tempuh (Kereta / Transit) {!destinationId ? '(butuh destinasi)' : ''}
+                  <option value="waktu_transit" disabled={!hasCommuteAnchor}>
+                    Waktu Tempuh (Kereta / Transit) {!hasCommuteAnchor ? '(butuh destinasi/kawasan)' : ''}
                   </option>
                   <option value="rating">Rating</option>
                   <option value="nama">Nama Kos</option>
@@ -592,7 +746,12 @@ export function SearchPage() {
               {/* Cards Grid: Render only the current page (12 items) */}
               <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
                 {visibleResults.map((k) => (
-                  <KosCard key={k.id} kos={k} commute={k.commute} destinationId={destinationId || undefined} />
+                  <KosCard
+                    key={k.id}
+                    kos={k}
+                    commute={k.commute}
+                    destinationId={destinationId || resolvedLocation?.hub.id || undefined}
+                  />
                 ))}
               </div>
 

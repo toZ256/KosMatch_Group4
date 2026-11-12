@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Send } from 'lucide-react';
 import type { ChatHistory, ConversationSummary, PublicUser } from '@kosmatch/shared';
@@ -114,9 +114,20 @@ export function ChatRoom({ otherId, other }: { otherId: string; other?: PublicUs
   const me = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const { data: messages = [], isLoading } = useMessages(otherId);
-  const [text, setText] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const draftParam = searchParams.get('draft') ?? '';
+  const [text, setText] = useState(draftParam);
   const [sending, setSending] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (draftParam) {
+      setText(draftParam);
+      const next = new URLSearchParams(searchParams);
+      next.delete('draft');
+      setSearchParams(next, { replace: true });
+    }
+  }, [draftParam, searchParams, setSearchParams]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });

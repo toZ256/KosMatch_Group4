@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Destination, Kos } from '@kosmatch/shared';
+import {
+  matchKosToLocation,
+  resolveLocationQuery,
+  type Destination,
+  type Kos,
+} from '@kosmatch/shared';
 import { MockCommuteProvider, haversineKm } from './MockCommuteProvider';
+import { NominatimGeocoder } from './NominatimGeocoder';
 import { OsrmCommuteProvider } from './OsrmCommuteProvider';
 import { createCommuteProvider } from './index';
 
@@ -111,5 +117,57 @@ describe('OsrmCommuteProvider', () => {
     const res = await osrm.estimate(kosAt(-6.23, 106.83), dest(-6.2, 106.82));
     const expected = await provider.estimate(kosAt(-6.23, 106.83), dest(-6.2, 106.82));
     expect(res).toEqual(expected);
+  });
+});
+
+describe('Location Gazetteer & NominatimGeocoder (OpenStreetMap)', () => {
+  it('resolves TB Simatupang corridor with surrounding sub-areas and radius', () => {
+    const loc = resolveLocationQuery('TB Simatupang');
+    expect(loc).not.toBeNull();
+    expect(loc!.displayName).toContain('TB Simatupang');
+    expect(loc!.nearbyAreas).toEqual(
+      expect.arrayContaining(['Cilandak', 'Pasar Minggu', 'Fatmawati', 'Lebak Bulus', 'Jagakarsa']),
+    );
+
+    // Matches kos in surrounding district (Cilandak) even if "Simatupang" is not in namaKos
+    const kosCilandak = {
+      ...kosAt(-6.29, 106.8),
+      namaKos: 'Kost Tipe D Cilandak Jakarta Selatan',
+      area: 'Cilandak, Jakarta Selatan',
+    };
+    const matchRes = matchKosToLocation(kosCilandak, loc!);
+    expect(matchRes.matches).toBe(true);
+    expect(matchRes.isNearbyAreaMatch).toBe(true);
+    expect(matchRes.isWithinRadius).toBe(true);
+  });
+
+  it('resolves dynamic Jakarta locations via OpenStreetMap Nominatim when not in local Gazetteer', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        {
+          place_id: 123,
+          lat: '-6.288',
+          lon: '106.809',
+          name: 'Cilandak Town Square',
+          address: {
+            suburb: 'Cilandak Barat',
+            city_district: 'Cilandak',
+            city: 'Jakarta Selatan',
+          },
+        },
+      ],
+    });
+
+    const geocoder = new NominatimGeocoder({
+      fetchFn: mockFetch as unknown as typeof fetch,
+      enableNetwork: true,
+    });
+
+    const resolved = await geocoder.resolve('Menara 165 Jakarta');
+    expect(resolved).not.toBeNull();
+    expect(resolved!.latitude).toBeCloseTo(-6.288, 3);
+    expect(resolved!.nearbyAreas).toEqual(expect.arrayContaining(['Cilandak', 'Cilandak Barat']));
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });

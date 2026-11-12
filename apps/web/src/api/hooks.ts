@@ -80,6 +80,28 @@ export const useBookmarks = () => {
   return useQuery({ queryKey: qk.bookmarks, queryFn: () => get<Kos[]>('/bookmarks'), enabled: !!token });
 };
 
+/** Direct multi-kos or single-kos bookmark addition mutation used by Agent Action Cards. */
+export function useAddBookmark() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (kosIds: string | string[]) => {
+      const ids = Array.isArray(kosIds) ? kosIds : [kosIds];
+      const results: Bookmark[] = [];
+      for (const kosId of ids) {
+        results.push(await post<Bookmark>('/bookmarks', { kosId }));
+      }
+      return results;
+    },
+    onSuccess: () => {
+      toast.success('Kos berhasil disimpan ke daftar tersimpan');
+      void qc.invalidateQueries({ queryKey: qk.bookmarks });
+    },
+    onError: (err) => {
+      toast.error(errorMessage(err));
+    },
+  });
+}
+
 /** Toggle with optimistic update, rollback on failure and a toast either way. */
 export function useToggleBookmark() {
   const qc = useQueryClient();
@@ -105,8 +127,17 @@ export function useToggleBookmark() {
   });
 }
 
-export const useChatbotAsk = () =>
-  useMutation({ mutationFn: (message: string) => post<ChatbotResponse>('/chatbot', { message }) });
+export const useChatbotAsk = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (message: string) => post<ChatbotResponse>('/chatbot', { message }),
+    onSuccess: (res) => {
+      if (res.actions?.some((a) => a.type === 'bookmark_kos' && a.status === 'executed')) {
+        void qc.invalidateQueries({ queryKey: qk.bookmarks });
+      }
+    },
+  });
+};
 
 export const useConversations = () => {
   const token = useAuthStore((s) => s.token);

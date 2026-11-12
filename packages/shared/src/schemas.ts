@@ -152,3 +152,70 @@ export const SendMessageInputSchema = z.object({
 export const SocketSendInputSchema = SendMessageInputSchema.extend({
   receiverId: z.string().min(1),
 });
+
+/* ---------------- AI Agent & Guardrails schemas ---------------- */
+
+export const AgentToolTypeSchema = z.enum([
+  'whatsapp_draft',
+  'bookmark_kos',
+  'compare_kos',
+  'search_redirect',
+]);
+
+export const WhatsAppIntentSchema = z.enum([
+  'tanya_ketersediaan',
+  'jadwal_survei',
+  'negosiasi_harga',
+  'tanya_fasilitas',
+]);
+
+export const WhatsAppDraftSchema = z.object({
+  kosId: z.string().min(1, 'ID kos wajib diisi'),
+  ownerId: z.string().min(1).optional(),
+  kosName: z.string().min(1).optional(),
+  tipe: TipeKosSchema.optional(),
+  hargaSewa: z.number().positive().optional(),
+  area: z.string().optional(),
+  ownerPhone: z.string().regex(/^\d{10,15}$/, 'Nomor WhatsApp tidak valid').optional(),
+  intent: WhatsAppIntentSchema.default('tanya_ketersediaan'),
+  draftMessage: z.string().min(1).max(1000).optional(),
+  waUrl: z.string().url().optional(),
+  inAppChatUrl: z.string().min(1).optional(),
+});
+
+export const BookmarkActionSchema = z.object({
+  kosIds: z.array(z.string().min(1)).min(1, 'Minimal 1 kos untuk disimpan').max(5, 'Maksimal 5 kos sekaligus'),
+  kosItems: z.array(KosSchema).optional(),
+  requiresAuth: z.boolean().optional(),
+});
+
+export const CompareKosSchema = z.object({
+  kosIds: z.array(z.string().min(1)).min(2, 'Minimal 2 kos untuk dibandingkan').max(3, 'Maksimal 3 kos untuk dibandingkan'),
+  destinationId: z.string().optional(),
+  destinationName: z.string().optional(),
+  items: z
+    .array(
+      z.object({
+        kos: KosSchema,
+        commute: z.array(CommuteEstimateSchema),
+      }),
+    )
+    .optional(),
+});
+
+export const ApplySearchFiltersSchema = z.object({
+  destinationId: z.string().optional(),
+  maxBudget: z.number().positive().optional(),
+  tipe: TipeKosSchema.optional(),
+  facilities: z.array(z.string()).optional(),
+  q: z.string().optional(),
+  searchUrl: z.string().min(1),
+  totalMatches: z.number().int().nonnegative().optional(),
+});
+
+export const AgentActionSchema = z.object({
+  type: AgentToolTypeSchema,
+  payload: z.record(z.unknown()),
+  status: z.enum(['proposed', 'executed', 'failed']),
+  label: z.string().min(1),
+});

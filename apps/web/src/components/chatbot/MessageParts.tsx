@@ -4,6 +4,13 @@ import { ArrowRight, ChevronDown, ChevronUp, MapPin, Navigation } from 'lucide-r
 import type { ChatbotResultItem } from '@kosmatch/shared';
 import { BookmarkButton } from '../kos/BookmarkButton';
 import { MODE_LABELS, formatRupiah, photoGradient } from '../../lib/format';
+export {
+  AgentActionList,
+  BookmarkActionCard,
+  ComparisonCard,
+  SearchRedirectCard,
+  WhatsAppDraftCard,
+} from './ActionCards';
 
 export function MessageBubble({ role, children }: { role: 'bot' | 'user'; children: React.ReactNode }) {
   return (

@@ -1,9 +1,13 @@
 import type { z } from 'zod';
 import type {
+  AgentToolTypeSchema,
+  ApplySearchFiltersSchema,
+  BookmarkActionSchema,
   BookmarkSchema,
   ChatHistorySchema,
   ChatParamsSchema,
   CommuteEstimateSchema,
+  CompareKosSchema,
   DestinationSchema,
   KosFormSchema,
   KosSchema,
@@ -14,6 +18,8 @@ import type {
   TipeKosSchema,
   TransportModeSchema,
   UserSchema,
+  WhatsAppDraftSchema,
+  WhatsAppIntentSchema,
 } from './schemas';
 
 export type Role = z.infer<typeof RoleSchema>;
@@ -31,6 +37,25 @@ export type RegisterInput = z.infer<typeof RegisterInputSchema>;
 export type LoginInput = z.infer<typeof LoginInputSchema>;
 export type KosFormInput = z.input<typeof KosFormSchema>;
 export type KosFormOutput = z.output<typeof KosFormSchema>;
+
+export type AgentToolType = z.infer<typeof AgentToolTypeSchema>;
+export type WhatsAppIntent = z.infer<typeof WhatsAppIntentSchema>;
+export type WhatsAppDraftPayload = z.infer<typeof WhatsAppDraftSchema>;
+export type BookmarkActionPayload = z.infer<typeof BookmarkActionSchema>;
+export type CompareKosPayload = z.infer<typeof CompareKosSchema>;
+export type ApplySearchFiltersPayload = z.infer<typeof ApplySearchFiltersSchema>;
+
+export type GuardrailReason =
+  | 'INJECTION_ATTEMPT_DETECTED'
+  | 'OUT_OF_SCOPE_DOMAIN'
+  | 'TOXIC_CONTENT';
+
+export interface AgentAction {
+  type: AgentToolType;
+  payload: Record<string, unknown>;
+  status: 'proposed' | 'executed' | 'failed';
+  label: string;
+}
 
 /* ---------------- API response shapes ---------------- */
 
@@ -71,6 +96,12 @@ export interface ChatbotResponse {
   isFallback?: boolean;
   fallbackReason?: string;
   unsupportedRequests?: string[];
+  actions?: AgentAction[];
+  guardrailNotice?: string;
+  guardrailBlocked?: boolean;
+  guardrailReason?: GuardrailReason;
+  sanitizedMessage?: string;
+  aiMode?: 'gemini' | 'mock';
 }
 
 export interface ConversationSummary {

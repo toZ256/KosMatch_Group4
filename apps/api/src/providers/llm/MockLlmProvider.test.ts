@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DESTINATION_SEED } from '../../data/seed';
+import { InMemoryRepository } from '../../data/inMemoryRepository';
+import { DESTINATION_SEED, seedRepository } from '../../data/seed';
+import { MockCommuteProvider } from '../commute/MockCommuteProvider';
+import { ChatbotService } from '../../services/chatbotService';
+import { KosService } from '../../services/kosService';
 import { MockLlmProvider } from './MockLlmProvider';
 import { RagLlmProvider } from './RagLlmProvider';
 import { createLlmProvider } from './index';
@@ -152,5 +156,102 @@ describe('provider factory & RagLlmProvider (Google AI Studio & Gateway)', () =>
     expect(reply).toMatch(/Estimasi/i);
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch.mock.calls[0]?.[0]).toContain('generativelanguage.googleapis.com');
+  });
+
+  it('expands corridor queries (e.g. TB Simatupang) to surrounding areas & attaches commute estimates in both Search & AI Agent', async () => {
+    const repo = new InMemoryRepository();
+    await seedRepository(repo);
+    const commute = new MockCommuteProvider();
+    const kosService = new KosService(repo, commute);
+    const chatbotService = new ChatbotService(repo, new MockLlmProvider(), commute);
+
+    // 1. Search Bar query for "TB Simatupang" returns nearby South Jakarta kos (Kemang/Kebayoran within radius) with commute estimates
+    const searchResults = await kosService.list({ q: 'TB Simatupang' });
+    expect(searchResults.length).toBeGreaterThan(0);
+    expect(searchResults[0]?.commute?.length).toBeGreaterThan(0);
+    expect(searchResults[0]?.commute?.[0]?.isEstimate).toBe(true);
+
+    // 2. AI Agent query for "TB Simatupang" extracts TB Simatupang & surrounding sub-areas and attaches commute estimates
+    const chatRes = await chatbotService.ask('mau ke kantor di dekat tb simatupang');
+    expect(chatRes.params.areaKeywords?.[0]).toBe('TB Simatupang');
+    expect(chatRes.params.areaKeywords).toEqual(
+      expect.arrayContaining(['TB Simatupang', 'Cilandak', 'Pasar Minggu', 'Fatmawati', 'Lebak Bulus', 'Jakarta Selatan']),
+    );
+    expect(chatRes.results.length).toBeGreaterThan(0);
+    expect(chatRes.results[0]?.commute.length).toBeGreaterThan(0);
+    expect(chatRes.results[0]?.commute[0]?.destinationId).toBe('koridor-tb-simatupang');
+  });
+
+  it('optimizes tokens: bypasses LLM call on pre-analyzed parameters & caches repeated RAG replies', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: 'Halo Kak! Ada Kos Andalan UI yang cocok. Cek Lihat Estimasi Transportasi untuk Estimasi rute.',
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+
+    const rag = new RagLlmProvider({
+      apiKey: 'AIzaSyTestKey',
+      model: 'gemini-2.5-flash',
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    // 1. Pre-analysis gate: clear parameter queries & tool commands use 0 LLM tokens in extractParams
+    const extracted1 = await rag.extractParams('Cari kos dekat TB Simatupang budget 2,5 juta ada AC dan WiFi', dests);
+    expect(extracted1.areaKeywords?.[0]).toBe('TB Simatupang');
+    expect(extracted1.maxBudgetMonthly).toBe(2_500_000);
+    expect(extracted1.fasilitas).toEqual(expect.arrayContaining(['AC', 'WiFi']));
+    expect(mockFetch).toHaveBeenCalledTimes(0);
+
+    const extractedTool = await rag.extractParams('Tolong simpan kos nomor 1 dan 2 ke daftar saya', dests);
+    expect(extractedTool).toEqual({});
+    expect(mockFetch).toHaveBeenCalledTimes(0);
+
+    // 2. Reply cache & maxOutputTokens: repeated identical RAG context calls LLM only once
+    const sampleResults = [
+      {
+        kos: {
+          id: 'k-cache-1',
+          ownerId: 'o1',
+          namaKos: 'Kos Andalan UI',
+          hargaSewa: 1_800_000,
+          latitude: -6.36,
+          longitude: 106.82,
+          area: 'Depok',
+          tipe: 'campur' as const,
+          fasilitas: ['Kasur', 'Lemari', 'Meja', 'Dapur', 'Parkir', 'AC', 'WiFi'],
+          deskripsi: 'Dekat UI',
+          rating: 4.8,
+          fotoColor: '#fff',
+        },
+        commute: [],
+      },
+    ];
+
+    const firstReply = await rag.composeReply(
+      { destinationId: 'universitas-indonesia', maxBudgetMonthly: 2_000_000, fasilitas: ['AC'] },
+      1,
+      { message: 'Cari kos dekat UI ada AC', results: sampleResults },
+    );
+    const secondReply = await rag.composeReply(
+      { destinationId: 'universitas-indonesia', maxBudgetMonthly: 2_000_000, fasilitas: ['AC'] },
+      1,
+      { message: 'Cari kos dekat UI ada AC', results: sampleResults },
+    );
+
+    expect(firstReply).toBe(secondReply);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const requestBody = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+    expect(requestBody.generationConfig?.maxOutputTokens).toBe(200);
   });
 });

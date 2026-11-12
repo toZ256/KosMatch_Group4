@@ -1,19 +1,22 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { ArrowUp, Sparkles, X } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ArrowUp, MapPin, ShieldAlert, Sparkles, X } from 'lucide-react';
+import { resolveLocationQuery } from '@kosmatch/shared';
 import { useChatbotAsk, useLogin } from '../../api/hooks';
 import { errorMessage } from '../../api/client';
+import { formatRupiah } from '../../lib/format';
 import { useAuthStore } from '../../stores/authStore';
 import { useChatbotStore } from '../../stores/chatbotStore';
 import { toast } from '../../stores/toastStore';
-import { MessageBubble, ResultCard, TypingIndicator } from './MessageParts';
+import { AgentActionList, MessageBubble, ResultCard, TypingIndicator } from './MessageParts';
 
 let idCounter = 0;
 const nextId = () => `m${++idCounter}`;
 
 const QUICK_PROMPTS = [
+  'Cari kos dekat TB Simatupang',
   'Cari kos dekat UI budget 2 juta',
-  'Kos putri dekat Binus budget 1.5 jt',
+  'Bandingkan Kos Andalan UI dan Kos Tebet Hijau',
   'Dekat Stasiun Sudirman, ojek di bawah 15rb',
 ];
 
@@ -65,12 +68,17 @@ export function ChatbotOverlay() {
         id: nextId(),
         role: 'bot',
         text: res.reply,
+        params: res.params,
         results: res.results,
         noResults: res.noResults,
         destinationId: res.params.destinationId,
         isFallback: res.isFallback,
         fallbackReason: res.fallbackReason,
         unsupportedRequests: res.unsupportedRequests,
+        actions: res.actions,
+        guardrailNotice: res.guardrailNotice,
+        guardrailBlocked: res.guardrailBlocked,
+        aiMode: res.aiMode,
       });
     } catch (e) {
       toast.error(errorMessage(e));
@@ -146,6 +154,15 @@ export function ChatbotOverlay() {
             <div key={m.id} className="space-y-2.5">
               <MessageBubble role={m.role}>
                 {m.noResults && <strong className="mb-1 block text-sm">Kos Tidak Ditemukan</strong>}
+                {m.guardrailNotice && (
+                  <div
+                    data-testid="guardrail-notice"
+                    className="mb-1.5 flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-2.5 py-1 text-[10px] font-bold text-primary"
+                  >
+                    <ShieldAlert size={12} className="shrink-0" />
+                    <span>{m.guardrailNotice}</span>
+                  </div>
+                )}
                 {m.isFallback && (
                   <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-accent/15 px-2.5 py-0.5 text-[10px] font-bold text-accent">
                     <span>💡 Opsi Alternatif Terbaik</span>
@@ -153,15 +170,93 @@ export function ChatbotOverlay() {
                 )}
                 {m.unsupportedRequests && m.unsupportedRequests.length > 0 && (
                   <div className="mb-1.5 rounded-xl border border-line bg-bg/50 p-2 text-[10px] text-muted">
-                    <span className="font-semibold text-ink">Catatan:</span> Permintaan fasilitas{' '}
-                    <span className="italic font-medium text-ink">{m.unsupportedRequests.join(', ')}</span> tidak termasuk dalam fasilitas standar kos kami.
+                    <span className="font-semibold text-ink">Catatan:</span>{' '}
+                    {m.unsupportedRequests.some((u) => /^(Kampus|Titik|Universitas)/i.test(u))
+                      ? 'Titik destinasi atau fasilitas '
+                      : 'Permintaan fasilitas '}
+                    <span className="italic font-medium text-ink">{m.unsupportedRequests.join(', ')}</span> tidak termasuk dalam katalog standar kos kami.
                   </div>
                 )}
-                <div>{m.text}</div>
+                {m.params &&
+                  (m.params.areaKeywords?.length ||
+                    m.params.destinationId ||
+                    m.params.maxBudgetMonthly ||
+                    m.params.tipe ||
+                    m.params.fasilitas?.length) && (
+                    <div
+                      data-testid="chatbot-extracted-params"
+                      className="mb-2 rounded-2xl border border-accent/30 bg-bg/70 p-2.5 text-[10px]"
+                    >
+                      <div className="flex items-center gap-1 font-bold text-ink">
+                        <MapPin size={11} className="shrink-0 text-primary" />
+                        <span>Parameter AI Terdeteksi:</span>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {m.params.areaKeywords && m.params.areaKeywords.length > 0 && (
+                          <span className="rounded-full bg-primary/15 px-2 py-0.5 font-bold text-primary">
+                            📍 Kawasan: {m.params.areaKeywords[0]}
+                          </span>
+                        )}
+                        {m.params.maxBudgetMonthly && (
+                          <span className="rounded-full bg-surface px-2 py-0.5 font-semibold text-ink shadow-xs">
+                            💰 Maks {formatRupiah(m.params.maxBudgetMonthly)}
+                          </span>
+                        )}
+                        {m.params.tipe && (
+                          <span className="rounded-full bg-surface px-2 py-0.5 font-semibold capitalize text-ink shadow-xs">
+                            🏠 Kos {m.params.tipe}
+                          </span>
+                        )}
+                        {m.params.fasilitas?.map((f) => (
+                          <span key={f} className="rounded-full bg-accent/15 px-2 py-0.5 font-semibold text-ink">
+                            ✓ {f}
+                          </span>
+                        ))}
+                      </div>
+                      {m.params.areaKeywords && m.params.areaKeywords.length > 1 && (
+                        <div className="mt-2 border-t border-line/70 pt-1.5">
+                          <span className="block text-[9px] font-semibold text-muted">
+                            Mencakup daerah & jalan sekitar (klik untuk filter di halaman cari):
+                          </span>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {m.params.areaKeywords
+                              .filter((kw) => !kw.toLowerCase().startsWith('jakarta '))
+                              .slice(0, 7)
+                              .map((kw) => (
+                                <Link
+                                  key={kw}
+                                  to={`/cari?q=${encodeURIComponent(kw)}`}
+                                  onClick={closePanel}
+                                  className="rounded-full border border-line bg-surface px-2 py-0.5 text-[9px] font-semibold text-ink transition hover:border-primary hover:text-primary"
+                                >
+                                  {kw}
+                                </Link>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                <div>{m.text.replace(/\*\*([^*]+)\*\*/g, '$1')}</div>
               </MessageBubble>
-              {m.results?.map((r) => (
-                <ResultCard key={r.kos.id} item={r} destinationId={m.destinationId} onNavigate={closePanel} />
-              ))}
+              {m.actions && m.actions.length > 0 && (
+                <AgentActionList actions={m.actions} onNavigate={closePanel} />
+              )}
+              {m.results?.map((r) => {
+                const fallbackDestId =
+                  m.destinationId ??
+                  (m.params?.areaKeywords?.[0]
+                    ? resolveLocationQuery(m.params.areaKeywords[0])?.hub.id
+                    : undefined);
+                return (
+                  <ResultCard
+                    key={r.kos.id}
+                    item={r}
+                    destinationId={fallbackDestId}
+                    onNavigate={closePanel}
+                  />
+                );
+              })}
             </div>
           ))}
 
