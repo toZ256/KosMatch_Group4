@@ -142,7 +142,7 @@ export function Navbar() {
                     <MessageCircle size={16} className="text-accent" /> Pesan
                   </Link>
                   {user.role === 'owner' && (
-                    <Link role="menuitem" to="/owner" className="flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 text-sm font-medium transition hover:bg-bg">
+                    <Link role="menuitem" to="/owner/kos" className="flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 text-sm font-medium transition hover:bg-bg">
                       <Store size={16} className="text-primary" /> Kelola Kos
                     </Link>
                   )}
@@ -196,7 +196,7 @@ export function Navbar() {
               <>
                 <NavLink to="/chat" className="rounded-2xl px-4 py-3 text-sm font-medium text-muted hover:bg-bg/60">Pesan</NavLink>
                 {user.role === 'owner' && (
-                  <NavLink to="/owner" className="rounded-2xl px-4 py-3 text-sm font-medium text-muted hover:bg-bg/60">Kelola Kos</NavLink>
+                  <NavLink to="/owner/kos" className="rounded-2xl px-4 py-3 text-sm font-medium text-muted hover:bg-bg/60">Kelola Kos</NavLink>
                 )}
                 <button type="button" onClick={handleLogout} className="rounded-2xl px-4 py-3 text-left text-sm font-medium text-muted hover:bg-bg/60">
                   Keluar ({user.nama})

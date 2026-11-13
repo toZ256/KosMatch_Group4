@@ -32,6 +32,7 @@ export function App() {
 
           {/* Owner protected routes */}
           <Route element={<ProtectedRoute role="owner" />}>
+            <Route path="owner" element={<Navigate to="/owner/kos" replace />} />
             <Route path="owner/kos" element={<OwnerDashboardPage />} />
             <Route path="owner/kos/baru" element={<OwnerKosFormPage />} />
             <Route path="owner/kos/:id/edit" element={<OwnerKosFormPage />} />
