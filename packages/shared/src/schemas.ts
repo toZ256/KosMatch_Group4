@@ -36,6 +36,7 @@ export const KosSchema = z.object({
   deskripsi: z.string(),
   rating: z.number(),
   fotoColor: z.string(),
+  googleMapsUrl: z.string().url().optional(),
 });
 
 export const ChatHistorySchema = z.object({
@@ -87,6 +88,60 @@ export const LoginInputSchema = z.object({
   password: z.string().min(1, 'Password wajib diisi'),
 });
 
+/** Validates whether a URL is a legitimate Google Maps share/pin link. */
+export function isValidGoogleMapsUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw.trim());
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    if (host === 'maps.app.goo.gl') return true;
+    if (host === 'goo.gl' && path.startsWith('/maps')) return true;
+    if (host === 'maps.google.com' || host === 'maps.google.co.id') return true;
+    if (
+      (host === 'google.com' ||
+        host === 'www.google.com' ||
+        host === 'google.co.id' ||
+        host === 'www.google.co.id') &&
+      path.startsWith('/maps')
+    ) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Extracts latitude/longitude from full Google Maps URLs when present
+ * (e.g. `@-6.2607,106.8133`, `?q=-6.2607,106.8133`, `!3d-6.2607!4d106.8133`, `query=-6.2607,106.8133`).
+ */
+export function extractCoordsFromGoogleMapsUrl(
+  raw: string,
+): { latitude: number; longitude: number } | null {
+  const input = raw.trim();
+  if (!input) return null;
+
+  const patterns = [
+    /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/,
+    /@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/,
+    /[?&](?:q|query|ll)=(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/,
+  ];
+
+  for (const re of patterns) {
+    const m = input.match(re);
+    if (m) {
+      const lat = Number(m[1]);
+      const lng = Number(m[2]);
+      if (Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        return { latitude: Number(lat.toFixed(6)), longitude: Number(lng.toFixed(6)) };
+      }
+    }
+  }
+  return null;
+}
+
 export const KosFormSchema = z.object({
   namaKos: z.string().trim().min(3, 'Nama kos minimal 3 karakter').max(100),
   area: z.string().trim().min(2, 'Area wajib diisi').max(100),
@@ -103,6 +158,15 @@ export const KosFormSchema = z.object({
     .number({ invalid_type_error: 'Longitude harus berupa angka' })
     .min(-180, 'Longitude tidak valid')
     .max(180, 'Longitude tidak valid'),
+  googleMapsUrl: z
+    .string()
+    .trim()
+    .max(500, 'Tautan Google Maps terlalu panjang')
+    .optional()
+    .transform((val) => (val && val.length > 0 ? val : undefined))
+    .refine((val) => val === undefined || isValidGoogleMapsUrl(val), {
+      message: 'Masukkan tautan Google Maps yang valid (mis. https://maps.app.goo.gl/... atau https://www.google.com/maps/...)',
+    }),
   tipe: TipeKosSchema,
   fasilitas: z.array(z.enum(FASILITAS_OPTIONS)).min(1, 'Pilih minimal satu fasilitas'),
   deskripsi: z.string().trim().min(10, 'Deskripsi minimal 10 karakter').max(1000),
@@ -114,11 +178,26 @@ export const KosQuerySchema = z.object({
   maxPrice: z.coerce.number().positive().optional(),
   tipe: TipeKosSchema.optional(),
   destinationId: z.string().optional(),
+  destLat: z.coerce.number().min(-90).max(90).optional(),
+  destLng: z.coerce.number().min(-180).max(180).optional(),
+  destName: z.string().trim().max(120).optional(),
 });
 
-export const CommuteQuerySchema = z.object({
-  kosId: z.string().min(1),
-  destinationId: z.string().min(1),
+export const CommuteQuerySchema = z
+  .object({
+    kosId: z.string().min(1),
+    destinationId: z.string().min(1).optional(),
+    destLat: z.coerce.number().min(-90).max(90).optional(),
+    destLng: z.coerce.number().min(-180).max(180).optional(),
+    destName: z.string().trim().max(120).optional(),
+  })
+  .refine(
+    (v) => Boolean(v.destinationId) || (v.destLat !== undefined && v.destLng !== undefined),
+    { message: 'destinationId atau koordinat tujuan (destLat & destLng) wajib diisi' },
+  );
+
+export const LocationSearchQuerySchema = z.object({
+  q: z.string().trim().min(1, 'Kata kunci lokasi wajib diisi').max(120),
 });
 
 export const ChatbotInputSchema = z.object({

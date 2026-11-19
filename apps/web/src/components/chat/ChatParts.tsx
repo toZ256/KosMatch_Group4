@@ -7,6 +7,7 @@ import { qk, useDeleteChatMessage, useMessages } from '../../api/hooks';
 import { errorMessage } from '../../api/client';
 import { connectSocket, sendChatMessage, useConnectionStore } from '../../lib/socket';
 import { formatTime } from '../../lib/format';
+import { OWNER_CHAT_QUICK_REPLIES } from '../../lib/owner';
 import { cn } from '../../lib/cn';
 import { useAuthStore } from '../../stores/authStore';
 import { toast } from '../../stores/toastStore';
@@ -267,6 +268,21 @@ export function ChatRoom({ otherId, other }: { otherId: string; other?: PublicUs
       </div>
 
       <div className="bg-surface px-4 pb-3.5 pt-2.5">
+        {me?.role === 'owner' && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Balasan cepat pemilik kos">
+            <span className="text-[10px] font-semibold text-muted">Balas cepat:</span>
+            {OWNER_CHAT_QUICK_REPLIES.map((qr) => (
+              <button
+                key={qr.label}
+                type="button"
+                onClick={() => setText(qr.text)}
+                className="rounded-lg border border-line bg-bg/70 px-2.5 py-1 text-[11px] font-semibold text-ink transition hover:border-accent hover:bg-accent/10"
+              >
+                {qr.label}
+              </button>
+            ))}
+          </div>
+        )}
         <form
           onSubmit={(e) => void submit(e)}
           className="flex items-center gap-2 rounded-full border-2 border-line/80 bg-bg/60 py-1 pl-4 pr-1.5 transition focus-within:border-accent focus-within:bg-surface focus-within:shadow-sm"
@@ -314,13 +330,13 @@ export function ChatRoom({ otherId, other }: { otherId: string; other?: PublicUs
               <Button
                 className="bg-bahaya hover:bg-bahaya/90"
                 loading={deleteMutation.isPending}
-                onClick={() => void handleDeleteForEveryone(messageToDelete.id)}
+                onClick={() => messageToDelete && void handleDeleteForEveryone(messageToDelete.id)}
               >
                 Hapus untuk Semua Orang
               </Button>
               <Button
                 variant="outline"
-                onClick={() => handleDeleteForMe(messageToDelete.id)}
+                onClick={() => messageToDelete && handleDeleteForMe(messageToDelete.id)}
               >
                 Hapus untuk Saya Saja
               </Button>

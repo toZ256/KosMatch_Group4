@@ -34,6 +34,7 @@ function toDomainKos(k: PrismaKos): Kos {
     deskripsi: k.deskripsi ?? '',
     rating: k.rating ?? 0,
     fotoColor: k.fotoColor ?? '#B8C4D6',
+    googleMapsUrl: k.googleMapsUrl ?? undefined,
   };
 }
 
@@ -227,6 +228,7 @@ export class PrismaRepository implements Repository {
           fasilitas: Array.isArray(k.fasilitas) ? k.fasilitas.join(';') : String(k.fasilitas || ''),
           lat: k.latitude,
           lng: k.longitude,
+          googleMapsUrl: k.googleMapsUrl ?? null,
           deskripsi: k.deskripsi,
           rating: k.rating,
           fotoColor: k.fotoColor,
@@ -249,6 +251,7 @@ export class PrismaRepository implements Repository {
         }
         if (patch.latitude !== undefined) data.lat = patch.latitude;
         if (patch.longitude !== undefined) data.lng = patch.longitude;
+        if ('googleMapsUrl' in patch) data.googleMapsUrl = patch.googleMapsUrl ?? null;
         if (patch.deskripsi !== undefined) data.deskripsi = patch.deskripsi;
         if (patch.rating !== undefined) data.rating = patch.rating;
         if (patch.fotoColor !== undefined) data.fotoColor = patch.fotoColor;

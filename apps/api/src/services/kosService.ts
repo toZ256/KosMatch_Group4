@@ -1,7 +1,9 @@
 import {
+  calculateDistanceKm,
   matchKosToLocation,
   resolveLocationQuery,
   type CommuteEstimate,
+  type Destination,
   type Kos,
   type KosFormOutput,
   type KosWithCommute,
@@ -15,14 +17,48 @@ import { MockCommuteProvider } from '../providers/commute/MockCommuteProvider';
 const PHOTO_COLORS = ['#E8B4A0', '#B8C4D6', '#D9C7A3', '#A9C7C5', '#E3B7C8', '#C5D3A8', '#B5B9E0'];
 const fastCommuteFallback = new MockCommuteProvider();
 
+export interface CustomDestinationParams {
+  destinationId?: string;
+  destLat?: number;
+  destLng?: number;
+  destName?: string;
+}
+
 export class KosService {
   constructor(
     private readonly repo: Repository,
     private readonly commute: CommuteProvider,
   ) {}
 
-  async list(query: { q?: string; maxPrice?: number; tipe?: TipeKos; destinationId?: string }) {
-    const { destinationId, ...filter } = query;
+  private async resolveTargetDestination(params: CustomDestinationParams): Promise<Destination | null> {
+    if (params.destinationId) {
+      const found =
+        (await this.repo.destinations.get(params.destinationId)) ??
+        resolveLocationQuery(params.destinationId)?.virtualDestination ??
+        null;
+      if (found) return found;
+    }
+    if (params.destLat !== undefined && params.destLng !== undefined) {
+      return {
+        id: params.destinationId || `custom:${params.destLat.toFixed(5)},${params.destLng.toFixed(5)}`,
+        nama: params.destName?.trim() || 'Lokasi Tujuan',
+        kategori: 'kantor',
+        latitude: params.destLat,
+        longitude: params.destLng,
+        aliases: [],
+      };
+    }
+    return null;
+  }
+
+  async list(
+    query: {
+      q?: string;
+      maxPrice?: number;
+      tipe?: TipeKos;
+    } & CustomDestinationParams,
+  ) {
+    const { destinationId, destLat, destLng, destName, ...filter } = query;
     const hubFromDestId = destinationId ? resolveLocationQuery(destinationId) : null;
     const effectiveFilter =
       !filter.q && hubFromDestId ? { ...filter, q: hubFromDestId.hub.name } : filter;
@@ -33,7 +69,8 @@ export class KosService {
       ? await defaultGeocoder.resolve(effectiveFilter.q)
       : hubFromDestId;
 
-    // If repository returned 0 items for a dynamic OpenStreetMap Nominatim location, filter by spatial radius & nearby areas
+    // If repository returned 0 items for a dynamic OpenStreetMap location (e.g. "Senayan City", "GBK", "Menara 165"),
+    // filter by spatial radius & nearby areas around the geocoded building coordinates
     if (kosList.length === 0 && resolvedLoc) {
       const allCandidates = await this.repo.kos.list({
         maxPrice: filter.maxPrice,
@@ -46,12 +83,21 @@ export class KosService {
         .map(({ kos }) => kos);
     }
 
-    if (destinationId) {
-      const dest =
-        (await this.repo.destinations.get(destinationId)) ??
-        resolveLocationQuery(destinationId)?.virtualDestination ??
-        null;
+    const hasExplicitDest = Boolean(destinationId) || (destLat !== undefined && destLng !== undefined);
+    if (hasExplicitDest) {
+      const dest = await this.resolveTargetDestination({ destinationId, destLat, destLng, destName });
       if (!dest) throw new AppError('NOT_FOUND', 'Destinasi tidak ditemukan');
+
+      // When searching purely by a custom building/place coordinate (without keyword filter),
+      // rank nearest kos first so the user immediately sees relevant nearby listings
+      if (!effectiveFilter.q && destLat !== undefined && destLng !== undefined) {
+        kosList = [...kosList].sort(
+          (a, b) =>
+            calculateDistanceKm(a.latitude, a.longitude, dest.latitude, dest.longitude) -
+            calculateDistanceKm(b.latitude, b.longitude, dest.latitude, dest.longitude),
+        );
+      }
+
       return Promise.all(
         kosList.map(
           async (k, idx): Promise<KosWithCommute> => ({
@@ -65,7 +111,7 @@ export class KosService {
       );
     }
 
-    // When user searches a major corridor/location in the search bar (e.g. "TB Simatupang"),
+    // When user searches a major corridor/building in the search bar (e.g. "TB Simatupang" or "Senayan City"),
     // automatically attach commute estimates to that location's anchor coordinates.
     if (resolvedLoc) {
       const virtualDest = resolvedLoc.virtualDestination;
@@ -85,25 +131,27 @@ export class KosService {
     return kosList as KosWithCommute[];
   }
 
-  async get(id: string, destinationId?: string): Promise<KosWithCommute> {
+  async get(id: string, target?: string | CustomDestinationParams): Promise<KosWithCommute> {
     const kos = await this.repo.kos.get(id);
     if (!kos) throw new AppError('NOT_FOUND', 'Kos tidak ditemukan');
-    if (!destinationId) return kos;
-    const dest =
-      (await this.repo.destinations.get(destinationId)) ??
-      resolveLocationQuery(destinationId)?.virtualDestination ??
-      null;
+    const destParams: CustomDestinationParams =
+      typeof target === 'string' ? { destinationId: target } : (target ?? {});
+    const hasExplicitDest =
+      Boolean(destParams.destinationId) ||
+      (destParams.destLat !== undefined && destParams.destLng !== undefined);
+    if (!hasExplicitDest) return kos;
+
+    const dest = await this.resolveTargetDestination(destParams);
     if (!dest) throw new AppError('NOT_FOUND', 'Destinasi tidak ditemukan');
     return { ...kos, commute: await this.commute.estimate(kos, dest) };
   }
 
-  async commuteFor(kosId: string, destinationId: string): Promise<CommuteEstimate[]> {
+  async commuteFor(kosId: string, target: string | CustomDestinationParams): Promise<CommuteEstimate[]> {
     const kos = await this.repo.kos.get(kosId);
     if (!kos) throw new AppError('NOT_FOUND', 'Kos tidak ditemukan');
-    const dest =
-      (await this.repo.destinations.get(destinationId)) ??
-      resolveLocationQuery(destinationId)?.virtualDestination ??
-      null;
+    const destParams: CustomDestinationParams =
+      typeof target === 'string' ? { destinationId: target } : target;
+    const dest = await this.resolveTargetDestination(destParams);
     if (!dest) throw new AppError('NOT_FOUND', 'Destinasi tidak ditemukan');
     return this.commute.estimate(kos, dest);
   }

@@ -11,12 +11,30 @@ interface KosCardProps {
   commute?: CommuteEstimate[];
   /** Carried to the detail page so the commute panel preselects the destination. */
   destinationId?: string;
+  destLat?: number;
+  destLng?: number;
+  destName?: string;
 }
 
-export const KosCard = memo(function KosCard({ kos, commute, destinationId }: KosCardProps) {
+export const KosCard = memo(function KosCard({
+  kos,
+  commute,
+  destinationId,
+  destLat,
+  destLng,
+  destName,
+}: KosCardProps) {
   const ojek = commute?.find((c) => c.mode === 'ojek');
   const transit = commute?.find((c) => c.mode === 'transit');
-  const to = destinationId ? `/kos/${kos.id}?destinationId=${destinationId}` : `/kos/${kos.id}`;
+  const detailParams = new URLSearchParams();
+  if (destinationId) detailParams.set('destinationId', destinationId);
+  else if (destLat !== undefined && destLng !== undefined) {
+    detailParams.set('destLat', String(destLat));
+    detailParams.set('destLng', String(destLng));
+    if (destName) detailParams.set('destName', destName);
+  }
+  const qs = detailParams.toString();
+  const to = qs ? `/kos/${kos.id}?${qs}` : `/kos/${kos.id}`;
   return (
     <article className="kos-card-item group relative overflow-hidden rounded-[28px] border border-line/70 bg-surface p-2.5 shadow-card transition-[transform,box-shadow] duration-150 hover:-translate-y-1 hover:border-accent/40 hover:shadow-float">
       <Link to={to} className="block" aria-label={`Lihat ${kos.namaKos}`}>

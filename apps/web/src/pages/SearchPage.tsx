@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
+  Building2,
   ChevronLeft,
   ChevronRight,
   MapPin,
@@ -12,12 +13,13 @@ import {
   X,
 } from 'lucide-react';
 import {
-  JAKARTA_LOCATION_HUBS,
   getLocationSuggestions,
   resolveLocationQuery,
   type KosWithCommute,
+  type PlaceSuggestion,
 } from '@kosmatch/shared';
-import { useDestinations, useKosList } from '../api/hooks';
+import { useDestinations, useKosList, usePlaceSearch } from '../api/hooks';
+import { DestinationPicker, type SelectedDestination } from '../components/kos/DestinationPicker';
 import { KosCard, KosCardSkeleton } from '../components/kos/KosCard';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -79,6 +81,19 @@ export function SearchPage() {
   const resultsTopRef = useRef<HTMLDivElement>(null);
 
   const destinationId = params.get('destinationId') ?? '';
+  const rawDestLat = params.get('destLat');
+  const rawDestLng = params.get('destLng');
+  const destLat =
+    rawDestLat !== null && rawDestLat !== '' && Number.isFinite(Number(rawDestLat))
+      ? Number(rawDestLat)
+      : undefined;
+  const destLng =
+    rawDestLng !== null && rawDestLng !== '' && Number.isFinite(Number(rawDestLng))
+      ? Number(rawDestLng)
+      : undefined;
+  const destNameParam = params.get('destName') ?? '';
+  const hasCustomCoords = destLat !== undefined && destLng !== undefined;
+
   const commuteMotor = Number(params.get('commuteMotor')) || undefined;
   const commuteTransit = Number(params.get('commuteTransit')) || undefined;
   // Fallback for legacy commute query param
@@ -108,21 +123,37 @@ export function SearchPage() {
 
   // Local state for top search bar input & location suggestions dropdown
   const [searchInput, setSearchInput] = useState(q);
+  const [debouncedSearchInput, setDebouncedSearchInput] = useState(q);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   useEffect(() => {
     setSearchInput(q);
   }, [q]);
 
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearchInput(searchInput.trim()), 280);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const resolvedLocation = useMemo(
     () => (q ? resolveLocationQuery(q) : destinationId ? resolveLocationQuery(destinationId) : null),
     [q, destinationId],
   );
   const locationSuggestions = useMemo(() => getLocationSuggestions(searchInput, 6), [searchInput]);
-  const hasCommuteAnchor = Boolean(destinationId || resolvedLocation);
+  const { data: dynamicPlaceSuggestions = [] } = usePlaceSearch(
+    showSuggestions && debouncedSearchInput.length >= 2 ? debouncedSearchInput : '',
+  );
+  const dynamicBuildingSuggestions = useMemo(
+    () => dynamicPlaceSuggestions.filter((p) => p.category === 'tempat').slice(0, 4),
+    [dynamicPlaceSuggestions],
+  );
+  const hasCommuteAnchor = Boolean(destinationId || hasCustomCoords || resolvedLocation);
 
   const { data, isLoading, isError, refetch } = useKosList({
     destinationId: destinationId || undefined,
+    destLat,
+    destLng,
+    destName: destNameParam || undefined,
     maxPrice: maxPriceParam,
     tipe: tipe || undefined,
     q: q || undefined,
@@ -201,21 +232,48 @@ export function SearchPage() {
     resultsTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const handleDestinationChange = (newDest: string) => {
+  const handleDestinationPick = (dest: SelectedDestination | null) => {
     const next = new URLSearchParams(params);
-    if (newDest) {
-      next.set('destinationId', newDest);
-    } else {
-      next.delete('destinationId');
-      if (!resolvedLocation) {
-        next.delete('commuteMotor');
-        next.delete('commuteTransit');
-        next.delete('maxCommuteMin');
-        if (sortBy === 'waktu_ojek' || sortBy === 'waktu_transit') {
-          next.delete('sortBy');
-          next.delete('sortDir');
-        }
+    next.delete('destinationId');
+    next.delete('destLat');
+    next.delete('destLng');
+    next.delete('destName');
+    if (dest) {
+      if (dest.destinationId) {
+        next.set('destinationId', dest.destinationId);
+      } else if (dest.latitude !== undefined && dest.longitude !== undefined) {
+        next.set('destLat', String(dest.latitude));
+        next.set('destLng', String(dest.longitude));
+        next.set('destName', dest.label);
       }
+    } else if (!resolvedLocation) {
+      next.delete('commuteMotor');
+      next.delete('commuteTransit');
+      next.delete('maxCommuteMin');
+      if (sortBy === 'waktu_ojek' || sortBy === 'waktu_transit') {
+        next.delete('sortBy');
+        next.delete('sortDir');
+      }
+    }
+    next.delete('page');
+    setParams(next, { replace: true });
+  };
+
+  const handleSelectDynamicPlace = (place: PlaceSuggestion) => {
+    setSearchInput('');
+    setShowSuggestions(false);
+    const next = new URLSearchParams(params);
+    next.delete('q');
+    next.delete('destinationId');
+    next.delete('destLat');
+    next.delete('destLng');
+    next.delete('destName');
+    if (place.destinationId) {
+      next.set('destinationId', place.destinationId);
+    } else {
+      next.set('destLat', String(place.latitude));
+      next.set('destLng', String(place.longitude));
+      next.set('destName', place.label);
     }
     next.delete('page');
     setParams(next, { replace: true });
@@ -275,7 +333,19 @@ export function SearchPage() {
 
   const destName =
     destinations.find((d) => d.id === destinationId)?.nama ??
+    (hasCustomCoords ? destNameParam || 'Lokasi Tujuan' : undefined) ??
     (resolvedLocation ? resolvedLocation.displayName : undefined);
+
+  const sidebarPickerValue: SelectedDestination | null =
+    destinationId || hasCustomCoords
+      ? {
+          label: destName ?? '',
+          destinationId: destinationId || undefined,
+          latitude: destLat,
+          longitude: destLng,
+        }
+      : null;
+
   const specificNearbyAreas = useMemo(
     () =>
       resolvedLocation
@@ -285,6 +355,7 @@ export function SearchPage() {
   );
   const isFilterActive = Boolean(
     destinationId ||
+      hasCustomCoords ||
       commuteMotor ||
       commuteTransit ||
       maxCommuteLegacy ||
@@ -301,7 +372,7 @@ export function SearchPage() {
       <h1 className="sr-only">Cari Kos</h1>
 
       {/* TOP: Dedicated Clean Search Bar with Location & Corridor Suggestions */}
-      <div className="relative mx-auto max-w-3xl">
+      <div className="relative z-30 mx-auto max-w-3xl">
         <form
           role="search"
           aria-label="Pencarian kata kunci kos"
@@ -343,42 +414,72 @@ export function SearchPage() {
           </Button>
         </form>
 
-        {/* Location & Corridor Quick Suggestions Dropdown */}
-        {showSuggestions && locationSuggestions.length > 0 && (
+        {/* Location, Building & Corridor Quick Suggestions Dropdown */}
+        {showSuggestions && (locationSuggestions.length > 0 || dynamicBuildingSuggestions.length > 0) && (
           <div
             data-testid="location-suggestions-dropdown"
             className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-3xl border border-line/90 bg-surface p-2 shadow-float"
           >
-            <div className="flex items-center justify-between px-3 py-1.5 text-[11px] font-bold text-muted">
-              <span>Rekomendasi Kawasan & Koridor Populer (beserta area sekitar)</span>
-              <span>OpenStreetMap / Gazetteer</span>
-            </div>
-            <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-              {locationSuggestions.map((sug) => (
-                <button
-                  key={sug.id}
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    handleSelectSuggestion(sug.queryValue);
-                  }}
-                  className="flex items-start gap-2.5 rounded-2xl px-3 py-2 text-left transition hover:bg-bg"
-                >
-                  <MapPin size={15} className="mt-0.5 shrink-0 text-primary" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate text-xs font-bold text-ink">{sug.label}</span>
-                      <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[9px] font-bold text-ink">
-                        {sug.categoryLabel}
-                      </span>
-                    </div>
-                    <p className="truncate text-[11px] text-muted">
-                      Sekitar: {sug.nearbyPreview}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
+            {dynamicBuildingSuggestions.length > 0 && (
+              <div className="mb-2 border-b border-line/70 pb-2">
+                <div className="px-3 py-1 text-[11px] font-bold text-muted">
+                  Gedung, Mall &amp; Lokasi Spesifik (Hitung Estimasi Rute Langsung)
+                </div>
+                <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                  {dynamicBuildingSuggestions.map((place) => (
+                    <button
+                      key={place.id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleSelectDynamicPlace(place);
+                      }}
+                      className="flex items-start gap-2.5 rounded-2xl px-3 py-2 text-left transition hover:bg-bg"
+                    >
+                      <Building2 size={15} className="mt-0.5 shrink-0 text-accent" />
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-bold text-ink">{place.label}</span>
+                        <p className="truncate text-[11px] text-muted">{place.subtitle}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {locationSuggestions.length > 0 && (
+              <>
+                <div className="flex items-center justify-between px-3 py-1.5 text-[11px] font-bold text-muted">
+                  <span>Rekomendasi Kawasan &amp; Koridor Populer (beserta area sekitar)</span>
+                </div>
+                <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                  {locationSuggestions.map((sug) => (
+                    <button
+                      key={sug.id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleSelectSuggestion(sug.queryValue);
+                      }}
+                      className="flex items-start gap-2.5 rounded-2xl px-3 py-2 text-left transition hover:bg-bg"
+                    >
+                      <MapPin size={15} className="mt-0.5 shrink-0 text-primary" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-xs font-bold text-ink">{sug.label}</span>
+                          <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[9px] font-bold text-ink">
+                            {sug.categoryLabel}
+                          </span>
+                        </div>
+                        <p className="truncate text-[11px] text-muted">
+                          Sekitar: {sug.nearbyPreview}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -469,28 +570,14 @@ export function SearchPage() {
           </div>
 
           <div className="space-y-4">
-            {/* 1. Lokasi Tujuan */}
-            <Select
-              label="Lokasi Tujuan (Kampus/Kantor/Kawasan)"
-              value={destinationId}
-              onChange={(e) => handleDestinationChange(e.target.value)}
-            >
-              <option value="">Semua Lokasi / Destinasi</option>
-              <optgroup label="Kampus, Kantor & Stasiun Utama">
-                {destinations.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.nama}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Koridor & Kawasan Populer (Area Sekitar)">
-                {JAKARTA_LOCATION_HUBS.map((hub) => (
-                  <option key={hub.id} value={hub.id}>
-                    {hub.name} ({hub.region})
-                  </option>
-                ))}
-              </optgroup>
-            </Select>
+            {/* 1. Lokasi Tujuan (Bebas: Gedung, Mall, Kampus, Stasiun, atau Area) */}
+            <DestinationPicker
+              id="sidebar-destination-picker"
+              label="Lokasi Tujuan (Gedung / Mall / Kampus / Area)"
+              placeholder="Cari tujuan bebas... (mis. Senayan City, GBK)"
+              value={sidebarPickerValue}
+              onSelect={handleDestinationPick}
+            />
 
             {/* 2. Waktu Tempuh Maks (Aktif jika Lokasi Tujuan atau Kawasan Pencarian dipilih) */}
             <div
@@ -750,7 +837,10 @@ export function SearchPage() {
                     key={k.id}
                     kos={k}
                     commute={k.commute}
-                    destinationId={destinationId || resolvedLocation?.hub.id || undefined}
+                    destinationId={destinationId || (!hasCustomCoords ? resolvedLocation?.hub.id : undefined)}
+                    destLat={destLat}
+                    destLng={destLng}
+                    destName={destNameParam || undefined}
                   />
                 ))}
               </div>

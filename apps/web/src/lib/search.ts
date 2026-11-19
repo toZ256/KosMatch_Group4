@@ -84,6 +84,10 @@ export function getPaginationPages(current: number, total: number): Array<number
 
 export interface SearchValues {
   destinationId: string;
+  destLat?: string;
+  destLng?: string;
+  destName?: string;
+  q?: string;
   maxCommuteMin: string;
   budget: string;
 }

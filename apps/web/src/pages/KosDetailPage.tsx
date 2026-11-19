@@ -3,10 +3,10 @@ import { ExternalLink, Footprints, MapPin, MessageCircle, Navigation, Star, Trai
 import { resolveLocationQuery, type CommuteEstimate, type TransportMode } from '@kosmatch/shared';
 import { useDestinations, useKos } from '../api/hooks';
 import { BookmarkButton } from '../components/kos/BookmarkButton';
+import { DestinationPicker, type SelectedDestination } from '../components/kos/DestinationPicker';
 import { Button } from '../components/ui/Button';
 import { Badge, Card, Skeleton } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
-import { Select } from '../components/ui/Input';
 import { MODE_LABELS, formatRating, formatRupiah, photoGradient } from '../lib/format';
 import { useAuthStore } from '../stores/authStore';
 
@@ -40,7 +40,17 @@ export function KosDetailPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const destinationId = params.get('destinationId') ?? '';
-  const { data: kos, isLoading, isError } = useKos(id, destinationId || undefined);
+  const rawLat = params.get('destLat');
+  const rawLng = params.get('destLng');
+  const destLat = rawLat !== null && rawLat !== '' && Number.isFinite(Number(rawLat)) ? Number(rawLat) : undefined;
+  const destLng = rawLng !== null && rawLng !== '' && Number.isFinite(Number(rawLng)) ? Number(rawLng) : undefined;
+  const destNameParam = params.get('destName') ?? '';
+  const { data: kos, isLoading, isError } = useKos(id, {
+    destinationId: destinationId || undefined,
+    destLat,
+    destLng,
+    destName: destNameParam || undefined,
+  });
   const { data: destinations = [] } = useDestinations();
   const user = useAuthStore((s) => s.user);
 
@@ -84,8 +94,44 @@ export function KosDetailPage() {
   const hasWalking = kos.commute?.some((c) => c.mode === 'jalan_kaki');
   const selectedDest =
     destinations.find((d) => d.id === destinationId) ??
-    (destinationId ? resolveLocationQuery(destinationId)?.virtualDestination : undefined);
-  const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${kos.latitude},${kos.longitude}`)}`;
+    (destinationId ? resolveLocationQuery(destinationId)?.virtualDestination : undefined) ??
+    (destLat !== undefined && destLng !== undefined
+      ? {
+          id: `custom:${destLat},${destLng}`,
+          nama: destNameParam || 'Lokasi Tujuan',
+          latitude: destLat,
+          longitude: destLng,
+        }
+      : undefined);
+  const pickerValue: SelectedDestination | null = selectedDest
+    ? {
+        label: selectedDest.nama,
+        destinationId: destinationId || undefined,
+        latitude: selectedDest.latitude,
+        longitude: selectedDest.longitude,
+      }
+    : null;
+
+  const handleSelectDest = (dest: SelectedDestination | null) => {
+    const next = new URLSearchParams(params);
+    next.delete('destinationId');
+    next.delete('destLat');
+    next.delete('destLng');
+    next.delete('destName');
+    if (dest) {
+      if (dest.destinationId) {
+        next.set('destinationId', dest.destinationId);
+      } else if (dest.latitude !== undefined && dest.longitude !== undefined) {
+        next.set('destLat', String(dest.latitude));
+        next.set('destLng', String(dest.longitude));
+        next.set('destName', dest.label);
+      }
+    }
+    setParams(next, { replace: true });
+  };
+  const googleMapsUrl =
+    kos.googleMapsUrl?.trim() ||
+    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${kos.latitude},${kos.longitude}`)}`;
   const googleMapsDirUrl = selectedDest
     ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(`${kos.latitude},${kos.longitude}`)}&destination=${encodeURIComponent(`${selectedDest.latitude},${selectedDest.longitude}`)}`
     : null;
@@ -174,24 +220,13 @@ export function KosDetailPage() {
             <h2 id="commute-heading" className="text-base font-semibold">Estimasi Perjalanan</h2>
             <Badge>Estimasi</Badge>
           </div>
-          <Select
-            label="Tujuan"
-            value={destinationId}
-            onChange={(e) => {
-              const next = new URLSearchParams(params);
-              if (e.target.value) next.set('destinationId', e.target.value);
-              else next.delete('destinationId');
-              setParams(next, { replace: true });
-            }}
-          >
-            <option value="">Pilih kampus / kantor / stasiun</option>
-            {selectedDest && !destinations.some((d) => d.id === selectedDest.id) && (
-              <option value={selectedDest.id}>{selectedDest.nama} (Kawasan Sekitar)</option>
-            )}
-            {destinations.map((d) => (
-              <option key={d.id} value={d.id}>{d.nama}</option>
-            ))}
-          </Select>
+          <DestinationPicker
+            id="detail-destination-picker"
+            label="Tujuan (Gedung, Mall, Kampus, atau Area)"
+            placeholder="Cari tujuan bebas... (mis. Senayan City, GBK, UI)"
+            value={pickerValue}
+            onSelect={handleSelectDest}
+          />
           {kos.commute ? (
             <>
               <ul className="mt-4 space-y-2">

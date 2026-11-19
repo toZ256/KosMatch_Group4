@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Search } from 'lucide-react';
-import { JAKARTA_LOCATION_HUBS } from '@kosmatch/shared';
-import { useDestinations } from '../../api/hooks';
 import { BUDGET_RANGES, COMMUTE_OPTIONS, type SearchValues } from '../../lib/search';
+import { DestinationPicker, type SelectedDestination } from './DestinationPicker';
 
 const selectClass =
   'w-full cursor-pointer appearance-none bg-transparent text-sm text-ink focus:outline-none truncate';
@@ -13,17 +12,75 @@ interface SearchBarProps {
 }
 
 export function SearchBar({ initial, onSubmit }: SearchBarProps) {
-  const { data: destinations = [] } = useDestinations();
+  const [selectedDest, setSelectedDest] = useState<SelectedDestination | null>(
+    initial?.destName
+      ? {
+          label: initial.destName,
+          destinationId: initial.destinationId || undefined,
+          latitude: initial.destLat ? Number(initial.destLat) : undefined,
+          longitude: initial.destLng ? Number(initial.destLng) : undefined,
+        }
+      : null,
+  );
+  const [rawDestText, setRawDestText] = useState(initial?.destName ?? initial?.q ?? '');
   const [values, setValues] = useState<SearchValues>({
     destinationId: initial?.destinationId ?? '',
     maxCommuteMin: initial?.maxCommuteMin ?? '',
     budget: initial?.budget ?? '',
   });
-  const set = (key: keyof SearchValues) => (e: React.ChangeEvent<HTMLSelectElement>) =>
+  const set = (key: 'maxCommuteMin' | 'budget') => (e: React.ChangeEvent<HTMLSelectElement>) =>
     setValues((v) => ({ ...v, [key]: e.target.value }));
+
+  const handleDestSelect = (dest: SelectedDestination | null) => {
+    setSelectedDest(dest);
+    if (!dest) {
+      setValues((v) => ({
+        ...v,
+        destinationId: '',
+        destLat: undefined,
+        destLng: undefined,
+        destName: undefined,
+        q: undefined,
+      }));
+      return;
+    }
+    if (dest.destinationId) {
+      setValues((v) => ({
+        ...v,
+        destinationId: dest.destinationId ?? '',
+        destLat: undefined,
+        destLng: undefined,
+        destName: undefined,
+        q: undefined,
+      }));
+    } else if (dest.latitude !== undefined && dest.longitude !== undefined) {
+      setValues((v) => ({
+        ...v,
+        destinationId: '',
+        destLat: String(dest.latitude),
+        destLng: String(dest.longitude),
+        destName: dest.label,
+        q: undefined,
+      }));
+    }
+  };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    const trimmed = rawDestText.trim();
+    // If user typed a place name (e.g. "Senayan City", "GBK") and hit Cari without clicking a suggestion,
+    // pass it as `q` so the backend geocoder resolves it automatically and attaches commute estimates.
+    if (!selectedDest && trimmed) {
+      onSubmit({
+        ...values,
+        destinationId: '',
+        destLat: undefined,
+        destLng: undefined,
+        destName: undefined,
+        q: trimmed,
+      });
+      return;
+    }
     onSubmit(values);
   };
 
@@ -32,29 +89,30 @@ export function SearchBar({ initial, onSubmit }: SearchBarProps) {
       role="search"
       aria-label="Pencarian kos"
       onSubmit={submit}
-      className="mx-auto flex w-full max-w-[760px] flex-col gap-1.5 rounded-[32px] border border-line/80 bg-surface/95 p-3 shadow-float backdrop-blur-md sm:flex-row sm:items-center sm:gap-1 sm:rounded-full sm:py-2 sm:pl-4 sm:pr-2.5"
+      className="relative z-30 mx-auto flex w-full max-w-[780px] flex-col gap-1.5 rounded-[32px] border border-line/80 bg-surface/95 p-3 shadow-float backdrop-blur-md sm:flex-row sm:items-center sm:gap-1 sm:rounded-full sm:py-2 sm:pl-4 sm:pr-2.5"
     >
-      <div className="min-w-0 flex-1 rounded-2xl px-4 py-1.5 text-left transition hover:bg-bg/70 sm:rounded-full">
-        <label htmlFor="search-destination" className="block text-[11px] font-bold text-ink">
-          Lokasi Tujuan
-        </label>
-        <select id="search-destination" value={values.destinationId} onChange={set('destinationId')} className={selectClass}>
-          <option value="">Kampus / Kantor / Kawasan</option>
-          <optgroup label="Kampus, Kantor & Stasiun Utama">
-            {destinations.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.nama}
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label="Koridor & Kawasan Populer (Area Sekitar)">
-            {JAKARTA_LOCATION_HUBS.map((hub) => (
-              <option key={hub.id} value={hub.id}>
-                {hub.name} ({hub.region})
-              </option>
-            ))}
-          </optgroup>
-        </select>
+      <div className="min-w-0 flex-[1.35] rounded-2xl px-4 py-1.5 text-left transition hover:bg-bg/70 sm:rounded-full">
+        <DestinationPicker
+          id="search-destination"
+          label="Lokasi Tujuan"
+          variant="omnibox"
+          placeholder="Cari gedung, mall, kampus, area..."
+          value={selectedDest}
+          onSelect={handleDestSelect}
+          onTextChange={(txt) => {
+            setRawDestText(txt);
+            if (selectedDest && txt !== selectedDest.label) {
+              setSelectedDest(null);
+              setValues((v) => ({
+                ...v,
+                destinationId: '',
+                destLat: undefined,
+                destLng: undefined,
+                destName: undefined,
+              }));
+            }
+          }}
+        />
       </div>
       <div className="mx-4 h-px bg-line/70 sm:mx-0 sm:h-8 sm:w-px" aria-hidden />
       <div className="min-w-0 flex-1 rounded-2xl px-4 py-1.5 text-left transition hover:bg-bg/70 sm:rounded-full">

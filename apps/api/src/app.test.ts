@@ -43,6 +43,32 @@ describe('health & public data', () => {
     expect((await ctx.api.get('/api/kos').query({ tipe: 'x' })).status).toBe(400);
   });
 
+  it('supports universal place search and custom coordinate commute estimation', async () => {
+    const searchPlaces = await ctx.api.get('/api/locations/search').query({ q: 'binus' });
+    expect(searchPlaces.status).toBe(200);
+    expect(searchPlaces.body.data.length).toBeGreaterThan(0);
+
+    const customList = await ctx.api
+      .get('/api/kos')
+      .query({ destLat: -6.2271, destLng: 106.7975, destName: 'Senayan City' });
+    expect(customList.status).toBe(200);
+    expect(customList.body.data[0].commute.length).toBeGreaterThan(0);
+    expect(customList.body.data[0].commute[0]).toMatchObject({ isEstimate: true, source: 'mock' });
+
+    const firstId = customList.body.data[0].id as string;
+    const customDetail = await ctx.api
+      .get(`/api/kos/${firstId}`)
+      .query({ destLat: -6.2271, destLng: 106.7975, destName: 'Senayan City' });
+    expect(customDetail.status).toBe(200);
+    expect(customDetail.body.data.commute[0].isEstimate).toBe(true);
+
+    const customCommute = await ctx.api
+      .get('/api/commute')
+      .query({ kosId: firstId, destLat: -6.2271, destLng: 106.7975, destName: 'Senayan City' });
+    expect(customCommute.status).toBe(200);
+    expect(customCommute.body.data[0].isEstimate).toBe(true);
+  });
+
   it('returns NOT_FOUND envelope for unknown api routes', async () => {
     const res = await ctx.api.get('/api/unknown');
     expect(res.status).toBe(404);
@@ -102,12 +128,27 @@ describe('owner kos', () => {
     expect(list.body.data.every((k: { ownerId: string }) => k.ownerId === owner.id)).toBe(true);
 
     expect((await ctx.api.post('/api/owner/kos').set(auth).send({ ...validKos, hargaSewa: 10 })).status).toBe(400);
-    const created = await ctx.api.post('/api/owner/kos').set(auth).send(validKos);
+    expect(
+      (await ctx.api.post('/api/owner/kos').set(auth).send({ ...validKos, googleMapsUrl: 'https://evil.example/x' })).status,
+    ).toBe(400);
+    const created = await ctx.api
+      .post('/api/owner/kos')
+      .set(auth)
+      .send({ ...validKos, googleMapsUrl: 'https://maps.app.goo.gl/KosBaruMenteng' });
     expect(created.status).toBe(201);
+    expect(created.body.data.googleMapsUrl).toBe('https://maps.app.goo.gl/KosBaruMenteng');
     const id = created.body.data.id as string;
 
-    const updated = await ctx.api.put(`/api/owner/kos/${id}`).set(auth).send({ ...validKos, hargaSewa: 2300000 });
+    const publicDetail = await ctx.api.get(`/api/kos/${id}`);
+    expect(publicDetail.status).toBe(200);
+    expect(publicDetail.body.data.googleMapsUrl).toBe('https://maps.app.goo.gl/KosBaruMenteng');
+
+    const updated = await ctx.api
+      .put(`/api/owner/kos/${id}`)
+      .set(auth)
+      .send({ ...validKos, hargaSewa: 2300000, googleMapsUrl: 'https://www.google.com/maps/@-6.2,106.8,17z' });
     expect(updated.body.data.hargaSewa).toBe(2300000);
+    expect(updated.body.data.googleMapsUrl).toBe('https://www.google.com/maps/@-6.2,106.8,17z');
 
     const forbidden = await ctx.api
       .put(`/api/owner/kos/${id}`)

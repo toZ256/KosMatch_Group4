@@ -11,6 +11,7 @@ import type {
   Kos,
   KosFormOutput,
   KosWithCommute,
+  PlaceSuggestion,
   PublicUser,
 } from '@kosmatch/shared';
 import { del, errorMessage, get, post, put } from './client';
@@ -20,8 +21,9 @@ import { toast } from '../stores/toastStore';
 export const qk = {
   health: ['health'] as const,
   destinations: ['destinations'] as const,
+  placeSearch: (q: string) => ['locations', 'search', q] as const,
   kosList: (params: object) => ['kos', 'list', params] as const,
-  kos: (id: string, destinationId?: string) => ['kos', 'detail', id, destinationId ?? null] as const,
+  kos: (id: string, target?: object | string) => ['kos', 'detail', id, target ?? null] as const,
   bookmarks: ['bookmarks'] as const,
   conversations: ['conversations'] as const,
   messages: (otherId: string) => ['messages', otherId] as const,
@@ -34,22 +36,45 @@ export const useHealth = () => useQuery({ queryKey: qk.health, queryFn: () => ge
 export const useDestinations = () =>
   useQuery({ queryKey: qk.destinations, queryFn: () => get<Destination[]>('/destinations'), staleTime: Infinity });
 
-export interface KosSearchParams {
+export const usePlaceSearch = (query: string) => {
+  const trimmed = query.trim();
+  return useQuery({
+    queryKey: qk.placeSearch(trimmed.toLowerCase()),
+    queryFn: () => get<PlaceSuggestion[]>('/locations/search', { q: trimmed }),
+    enabled: trimmed.length >= 2,
+    staleTime: 60_000,
+    retry: false,
+  });
+};
+
+export interface CustomDestQuery {
+  destinationId?: string;
+  destLat?: number;
+  destLng?: number;
+  destName?: string;
+}
+
+export interface KosSearchParams extends CustomDestQuery {
   q?: string;
   maxPrice?: number;
   tipe?: string;
-  destinationId?: string;
 }
 
 export const useKosList = (params: KosSearchParams) =>
   useQuery({ queryKey: qk.kosList(params), queryFn: () => get<KosWithCommute[]>('/kos', { ...params }) });
 
-export const useKos = (id: string, destinationId?: string) =>
-  useQuery({
-    queryKey: qk.kos(id, destinationId),
-    queryFn: () => get<KosWithCommute>(`/kos/${id}`, destinationId ? { destinationId } : undefined),
+export const useKos = (id: string, target?: string | CustomDestQuery) => {
+  const queryParams: CustomDestQuery | undefined =
+    typeof target === 'string' ? { destinationId: target } : target;
+  const hasParams = Boolean(
+    queryParams?.destinationId || (queryParams?.destLat !== undefined && queryParams?.destLng !== undefined),
+  );
+  return useQuery({
+    queryKey: qk.kos(id, hasParams ? queryParams : undefined),
+    queryFn: () => get<KosWithCommute>(`/kos/${id}`, hasParams ? { ...queryParams } : undefined),
     retry: false,
   });
+};
 
 export const useCommute = (kosId: string, destinationId?: string) =>
   useQuery({

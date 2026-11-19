@@ -109,6 +109,16 @@ export interface ConversationSummary {
   last: ChatHistory;
 }
 
+export interface PlaceSuggestion {
+  id: string;
+  label: string;
+  subtitle: string;
+  category: 'destinasi' | 'kawasan' | 'tempat';
+  latitude: number;
+  longitude: number;
+  destinationId?: string;
+}
+
 export interface HealthResponse {
   status: 'ok';
   mode: { ai: 'mock'; data: 'memory' };

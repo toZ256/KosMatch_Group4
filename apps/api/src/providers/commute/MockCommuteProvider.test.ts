@@ -170,4 +170,49 @@ describe('Location Gazetteer & NominatimGeocoder (OpenStreetMap)', () => {
     expect(resolved!.nearbyAreas).toEqual(expect.arrayContaining(['Cilandak', 'Cilandak Barat']));
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
+
+  it('searches arbitrary Greater Jakarta buildings via Photon and filters out-of-region hits', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        features: [
+          {
+            geometry: { coordinates: [106.7975, -6.2271] },
+            properties: {
+              osm_id: 101,
+              name: 'Senayan City',
+              street: 'Jalan Asia Afrika',
+              district: 'Tanah Abang',
+              city: 'Jakarta Pusat',
+            },
+          },
+          {
+            geometry: { coordinates: [110.3695, -7.7956] }, // Yogyakarta (outside Jabodetabek)
+            properties: {
+              osm_id: 102,
+              name: 'Malioboro Mall',
+              city: 'Yogyakarta',
+            },
+          },
+        ],
+      }),
+    });
+
+    const geocoder = new NominatimGeocoder({
+      fetchFn: mockFetch as unknown as typeof fetch,
+      enableNetwork: true,
+    });
+
+    const places = await geocoder.searchPlaces('Senayan City', 5);
+    expect(places).toHaveLength(1);
+    expect(places[0]).toMatchObject({
+      label: 'Senayan City',
+      category: 'tempat',
+      latitude: -6.2271,
+      longitude: 106.7975,
+    });
+    // Cached on second call
+    await geocoder.searchPlaces('senayan city', 5);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 });

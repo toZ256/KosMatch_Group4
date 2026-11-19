@@ -25,6 +25,7 @@ model Kos {
   deskripsi         String?
   lat               Float
   lng               Float
+  googleMapsUrl     String?
   dalamJakarta      Boolean    @default(true)
   fotoColor         String?    @default("#B8C4D6")
   ownerId           String?    @default("owner-bu-sari")
