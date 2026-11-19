@@ -37,6 +37,8 @@ export interface Repository {
   chats: {
     between(a: string, b: string): Promise<ChatHistory[]>;
     conversations(userId: string): Promise<{ otherUserId: string; last: ChatHistory }[]>;
+    findById(id: string): Promise<ChatHistory | null>;
     add(m: Omit<ChatHistory, 'id' | 'sentAt'> & { sentAt?: string }): Promise<ChatHistory>;
+    remove(id: string): Promise<boolean>;
   };
 }

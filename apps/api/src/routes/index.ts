@@ -151,6 +151,14 @@ export function createApiRouter(repo: Repository, services: Services, jwtSecret:
       ),
     ),
   );
+  router.delete(
+    '/chats/messages/:id',
+    auth,
+    asyncHandler(async (req, res) => {
+      await services.chats.delete(requireUser(req), param(req.params.id));
+      ok(res, { id: param(req.params.id), deleted: true });
+    }),
+  );
 
   /* ---- owner ---- */
   const owner = Router();

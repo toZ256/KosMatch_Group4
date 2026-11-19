@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Send } from 'lucide-react';
+import { ArrowLeft, Send, Trash2 } from 'lucide-react';
 import type { ChatHistory, ConversationSummary, PublicUser } from '@kosmatch/shared';
-import { qk, useMessages } from '../../api/hooks';
+import { qk, useDeleteChatMessage, useMessages } from '../../api/hooks';
 import { errorMessage } from '../../api/client';
 import { connectSocket, sendChatMessage, useConnectionStore } from '../../lib/socket';
 import { formatTime } from '../../lib/format';
@@ -12,6 +12,8 @@ import { useAuthStore } from '../../stores/authStore';
 import { toast } from '../../stores/toastStore';
 import { Avatar } from '../ui/EmptyState';
 import { Spinner } from '../ui/Spinner';
+import { Modal } from '../ui/Modal';
+import { Button } from '../ui/Button';
 
 /** Connects the socket and keeps the query cache in sync with `message:new`. */
 export function useChatSocket(): void {
@@ -29,9 +31,17 @@ export function useChatSocket(): void {
       );
       void qc.invalidateQueries({ queryKey: qk.conversations });
     };
+    const onDeleted = ({ id }: { id: string }) => {
+      qc.setQueriesData<ChatHistory[]>({ queryKey: ['messages'] }, (old) =>
+        old ? old.filter((x) => x.id !== id) : old,
+      );
+      void qc.invalidateQueries({ queryKey: qk.conversations });
+    };
     socket.on('message:new', onNew);
+    socket.on('message:deleted', onDeleted);
     return () => {
       socket.off('message:new', onNew);
+      socket.off('message:deleted', onDeleted);
     };
   }, [token, userId, qc]);
 }
@@ -114,11 +124,54 @@ export function ChatRoom({ otherId, other }: { otherId: string; other?: PublicUs
   const me = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const { data: messages = [], isLoading } = useMessages(otherId);
+  const deleteMutation = useDeleteChatMessage();
   const [searchParams, setSearchParams] = useSearchParams();
   const draftParam = searchParams.get('draft') ?? '';
   const [text, setText] = useState(draftParam);
   const [sending, setSending] = useState(false);
+  const [messageToDelete, setMessageToDelete] = useState<ChatHistory | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+
+  const [deletedForMeIds, setDeletedForMeIds] = useState<Set<string>>(() => {
+    if (!me?.id) return new Set();
+    try {
+      const raw = localStorage.getItem(`kosmatch_deleted_for_me_${me.id}`);
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const handleDeleteForMe = (id: string) => {
+    if (!me?.id) return;
+    setDeletedForMeIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      try {
+        localStorage.setItem(`kosmatch_deleted_for_me_${me.id}`, JSON.stringify([...next]));
+      } catch {
+        // Ignore storage errors
+      }
+      return next;
+    });
+    setMessageToDelete(null);
+    toast.success('Pesan berhasil dihapus untuk Anda');
+  };
+
+  const handleDeleteForEveryone = async (id: string) => {
+    try {
+      await deleteMutation.mutateAsync(id);
+      qc.setQueryData<ChatHistory[]>(qk.messages(otherId), (old = []) =>
+        old.filter((m) => m.id !== id),
+      );
+      setMessageToDelete(null);
+      toast.success('Pesan berhasil dihapus untuk semua orang');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+
+  const visibleMessages = messages.filter((m) => !deletedForMeIds.has(m.id));
 
   useEffect(() => {
     if (draftParam) {
@@ -131,7 +184,7 @@ export function ChatRoom({ otherId, other }: { otherId: string; other?: PublicUs
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });
-  }, [messages.length, otherId]);
+  }, [visibleMessages.length, otherId]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,13 +224,23 @@ export function ChatRoom({ otherId, other }: { otherId: string; other?: PublicUs
             <Spinner />
           </div>
         )}
-        {!isLoading && messages.length === 0 && (
+        {!isLoading && visibleMessages.length === 0 && (
           <p className="py-10 text-center text-sm text-muted">Belum ada pesan. Sapa {other?.nama ?? 'pemilik'} sekarang!</p>
         )}
-        {messages.map((m) => {
+        {visibleMessages.map((m) => {
           const mine = m.senderId === me?.id;
           return (
-            <div key={m.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+            <div key={m.id} className={cn('group flex items-center gap-2', mine ? 'justify-end' : 'justify-start')}>
+              {mine && (
+                <button
+                  type="button"
+                  title="Hapus pesan"
+                  onClick={() => setMessageToDelete(m)}
+                  className="rounded-full p-1.5 text-muted opacity-0 transition hover:bg-bg hover:text-bahaya group-hover:opacity-100"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
               <div
                 className={cn(
                   'max-w-[80%] rounded-[22px] px-4 py-2.5 text-sm shadow-sm',
@@ -187,6 +250,16 @@ export function ChatRoom({ otherId, other }: { otherId: string; other?: PublicUs
                 <p className="whitespace-pre-wrap break-words">{m.pesan}</p>
                 <p className={cn('mt-1 text-right text-[10px]', mine ? 'text-white/60' : 'text-muted')}>{formatTime(m.sentAt)}</p>
               </div>
+              {!mine && (
+                <button
+                  type="button"
+                  title="Hapus untuk saya"
+                  onClick={() => setMessageToDelete(m)}
+                  className="rounded-full p-1.5 text-muted opacity-0 transition hover:bg-bg hover:text-bahaya group-hover:opacity-100"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
             </div>
           );
         })}
@@ -216,6 +289,63 @@ export function ChatRoom({ otherId, other }: { otherId: string; other?: PublicUs
           </button>
         </form>
       </div>
+
+      {/* Modal Konfirmasi Hapus Pesan */}
+      <Modal
+        open={!!messageToDelete}
+        title={messageToDelete?.senderId === me?.id ? 'Hapus Pesan' : 'Hapus Pesan untuk Saya'}
+        onClose={() => setMessageToDelete(null)}
+      >
+        <p className="text-sm text-muted">
+          {messageToDelete?.senderId === me?.id
+            ? 'Pesan ini dikirim oleh Anda. Pilih cara penghapusan yang diinginkan:'
+            : 'Pesan ini akan dihapus dari obrolan Anda. Lawan bicara tetap dapat melihat pesan ini di perangkat mereka.'}
+        </p>
+
+        {messageToDelete && (
+          <div className="my-3 rounded-2xl border border-line/60 bg-bg/50 p-3 text-xs italic text-ink">
+            &ldquo;{messageToDelete.pesan}&rdquo;
+          </div>
+        )}
+
+        <div className="mt-5 flex flex-col gap-2">
+          {messageToDelete?.senderId === me?.id ? (
+            <>
+              <Button
+                className="bg-bahaya hover:bg-bahaya/90"
+                loading={deleteMutation.isPending}
+                onClick={() => void handleDeleteForEveryone(messageToDelete.id)}
+              >
+                Hapus untuk Semua Orang
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleDeleteForMe(messageToDelete.id)}
+              >
+                Hapus untuk Saya Saja
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setMessageToDelete(null)}
+              >
+                Batal
+              </Button>
+            </>
+          ) : (
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setMessageToDelete(null)}>
+                Batal
+              </Button>
+              <Button
+                className="bg-bahaya hover:bg-bahaya/90"
+                onClick={() => messageToDelete && handleDeleteForMe(messageToDelete.id)}
+              >
+                Hapus untuk Saya
+              </Button>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

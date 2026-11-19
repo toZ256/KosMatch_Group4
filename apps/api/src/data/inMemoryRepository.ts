@@ -154,6 +154,10 @@ export class InMemoryRepository implements Repository {
         .map(([otherUserId, last]) => ({ otherUserId, last: { ...last } }))
         .sort((x, y) => y.last.sentAt.localeCompare(x.last.sentAt));
     },
+    findById: async (id) => {
+      const found = this.chatList.find((m) => m.id === id);
+      return found ? { ...found } : null;
+    },
     add: async (m) => {
       const message: ChatHistory = {
         id: randomUUID(),
@@ -164,6 +168,12 @@ export class InMemoryRepository implements Repository {
       };
       this.chatList.push(message);
       return { ...message };
+    },
+    remove: async (id) => {
+      const idx = this.chatList.findIndex((m) => m.id === id);
+      if (idx === -1) return false;
+      this.chatList.splice(idx, 1);
+      return true;
     },
   };
 }

@@ -416,5 +416,24 @@ export class PrismaRepository implements Repository {
         sentAt: created.sentAt.toISOString(),
       };
     },
+    findById: async (id) => {
+      const m = await this.prisma.chatHistory.findUnique({ where: { id } });
+      if (!m) return null;
+      return {
+        id: m.id,
+        senderId: m.senderId,
+        receiverId: m.receiverId,
+        pesan: m.pesan,
+        sentAt: m.sentAt.toISOString(),
+      };
+    },
+    remove: async (id) => {
+      try {
+        await this.prisma.chatHistory.delete({ where: { id } });
+        return true;
+      } catch {
+        return false;
+      }
+    },
   };
 }

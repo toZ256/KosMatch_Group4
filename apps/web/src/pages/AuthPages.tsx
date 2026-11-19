@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { ArrowLeft } from 'lucide-react';
 import { LoginInputSchema, RegisterInputSchema } from '@kosmatch/shared';
 import { useLogin, useRegister } from '../api/hooks';
 import { errorMessage } from '../api/client';
@@ -134,6 +135,14 @@ export function RegisterPage() {
 
   return (
     <AuthShell title="Buat Akun KosMatch" subtitle="Daftar gratis sebagai penyewa atau pemilik kos.">
+      <div className="mb-4">
+        <Link
+          to={`/login${redirect !== '/' ? `?redirect=${encodeURIComponent(redirect)}` : ''}`}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted hover:text-ink transition"
+        >
+          <ArrowLeft size={14} /> Kembali ke Halaman Masuk
+        </Link>
+      </div>
       <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="space-y-4">
         <Input label="Nama" autoComplete="name" placeholder="Nama lengkap" error={form.formState.errors.nama?.message} {...form.register('nama')} />
         <Input label="Email" type="email" autoComplete="email" placeholder="nama@email.com" error={form.formState.errors.email?.message} {...form.register('email')} />
@@ -146,13 +155,14 @@ export function RegisterPage() {
           Daftar
         </Button>
       </form>
-      <DemoButtons onDemo={(r) => void demo(r)} busy={register.isPending || login.isPending} />
-      <p className="mt-6 text-center text-sm text-muted">
-        Sudah punya akun?{' '}
-        <Link to={`/login${redirect !== '/' ? `?redirect=${encodeURIComponent(redirect)}` : ''}`} className="font-semibold text-primary">
-          Masuk
+      <div className="mt-3">
+        <Link to={`/login${redirect !== '/' ? `?redirect=${encodeURIComponent(redirect)}` : ''}`} className="block w-full">
+          <Button variant="outline" size="md" className="w-full" type="button">
+            Sudah Punya Akun? Masuk di Sini
+          </Button>
         </Link>
-      </p>
+      </div>
+      <DemoButtons onDemo={(r) => void demo(r)} busy={register.isPending || login.isPending} />
     </AuthShell>
   );
 }

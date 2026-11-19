@@ -9,10 +9,17 @@ import { Button } from '../ui/Button';
 import { toast } from '../../stores/toastStore';
 import { cn } from '../../lib/cn';
 
-const LINKS = [
+const TENANT_LINKS = [
   { to: '/', label: 'Beranda', end: true },
   { to: '/cari', label: 'Cari Kos' },
   { to: '/tersimpan', label: 'Tersimpan' },
+  { to: '/notifikasi', label: 'Notifikasi' },
+];
+
+const OWNER_LINKS = [
+  { to: '/', label: 'Beranda', end: true },
+  { to: '/owner/kos', label: 'Kos Saya' },
+  { to: '/chat', label: 'Pesan' },
   { to: '/notifikasi', label: 'Notifikasi' },
 ];
 
@@ -113,13 +120,18 @@ export function Navbar() {
       >
         <Wordmark />
 
-        <nav aria-label="Navigasi utama" className="hidden items-center gap-1 md:flex">
-          {LINKS.map((l) => (
-            <NavLink key={l.to} to={l.to} end={l.end} className={linkClass}>
-              {l.label}
-            </NavLink>
-          ))}
-        </nav>
+        {(() => {
+          const navLinks = user?.role === 'owner' ? OWNER_LINKS : TENANT_LINKS;
+          return (
+            <nav aria-label="Navigasi utama" className="hidden items-center gap-1 md:flex">
+              {navLinks.map((l) => (
+                <NavLink key={l.to} to={l.to} end={l.end} className={linkClass}>
+                  {l.label}
+                </NavLink>
+              ))}
+            </nav>
+          );
+        })()}
 
         <div className="flex items-center gap-2">
           {user ? (
@@ -180,7 +192,7 @@ export function Navbar() {
       {mobileOpen && (
         <div className="mx-auto mt-2 max-w-[980px] animate-fade-in rounded-[28px] border border-line/70 bg-surface/95 p-4 shadow-float backdrop-blur-md md:hidden">
           <nav aria-label="Navigasi seluler" className="flex flex-col gap-1">
-            {LINKS.map((l) => (
+            {(user?.role === 'owner' ? OWNER_LINKS : TENANT_LINKS).map((l) => (
               <NavLink
                 key={l.to}
                 to={l.to}
@@ -193,15 +205,9 @@ export function Navbar() {
               </NavLink>
             ))}
             {user ? (
-              <>
-                <NavLink to="/chat" className="rounded-2xl px-4 py-3 text-sm font-medium text-muted hover:bg-bg/60">Pesan</NavLink>
-                {user.role === 'owner' && (
-                  <NavLink to="/owner/kos" className="rounded-2xl px-4 py-3 text-sm font-medium text-muted hover:bg-bg/60">Kelola Kos</NavLink>
-                )}
-                <button type="button" onClick={handleLogout} className="rounded-2xl px-4 py-3 text-left text-sm font-medium text-muted hover:bg-bg/60">
-                  Keluar ({user.nama})
-                </button>
-              </>
+              <button type="button" onClick={handleLogout} className="mt-2 rounded-2xl px-4 py-3 text-left text-sm font-medium text-muted hover:bg-bg/60">
+                Keluar ({user.nama})
+              </button>
             ) : (
               <Link to={loginHref} className="mt-2">
                 <Button className="w-full">Masuk</Button>

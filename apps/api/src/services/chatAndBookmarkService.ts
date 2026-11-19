@@ -28,9 +28,11 @@ export class BookmarkService {
 }
 
 export type MessageListener = (message: ChatHistory) => void;
+export type DeleteListener = (payload: { id: string; senderId: string; receiverId: string }) => void;
 
 export class ChatService {
   private listeners = new Set<MessageListener>();
+  private deleteListeners = new Set<DeleteListener>();
 
   constructor(private readonly repo: Repository) {}
 
@@ -40,12 +42,30 @@ export class ChatService {
     return () => this.listeners.delete(listener);
   }
 
+  /** Subscribe to deleted messages (used by Socket.IO to push real-time deletions). */
+  onDelete(listener: DeleteListener): () => void {
+    this.deleteListeners.add(listener);
+    return () => this.deleteListeners.delete(listener);
+  }
+
   async send(senderId: string, receiverId: string, pesan: string): Promise<ChatHistory> {
     if (senderId === receiverId) throw new AppError('VALIDATION_ERROR', 'Tidak bisa mengirim pesan ke diri sendiri');
     if (!(await this.repo.users.findById(receiverId))) throw new AppError('NOT_FOUND', 'Penerima tidak ditemukan');
     const message = await this.repo.chats.add({ senderId, receiverId, pesan });
     for (const listener of this.listeners) listener(message);
     return message;
+  }
+
+  async delete(userId: string, messageId: string): Promise<void> {
+    const message = await this.repo.chats.findById(messageId);
+    if (!message) throw new AppError('NOT_FOUND', 'Pesan tidak ditemukan');
+    if (message.senderId !== userId) {
+      throw new AppError('FORBIDDEN', 'Hanya pengirim yang bisa menghapus pesan untuk semua orang');
+    }
+    await this.repo.chats.remove(messageId);
+    for (const listener of this.deleteListeners) {
+      listener({ id: message.id, senderId: message.senderId, receiverId: message.receiverId });
+    }
   }
 
   async history(userId: string, otherUserId: string): Promise<ChatHistory[]> {

@@ -40,6 +40,10 @@ export function attachSocket(httpServer: HttpServer, deps: SocketDeps): Server {
     io.to(`user:${message.receiverId}`).to(`user:${message.senderId}`).emit('message:new', message);
   });
 
+  deps.chats.onDelete((deleted) => {
+    io.to(`user:${deleted.receiverId}`).to(`user:${deleted.senderId}`).emit('message:deleted', { id: deleted.id });
+  });
+
   io.on('connection', (socket) => {
     const userId = socket.data.userId as string;
     void socket.join(`user:${userId}`);

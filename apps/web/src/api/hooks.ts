@@ -159,6 +159,16 @@ export const useMessages = (otherId?: string) =>
     staleTime: 0,
   });
 
+export function useDeleteChatMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (messageId: string) => del<{ id: string; deleted: boolean }>(`/chats/messages/${messageId}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: qk.conversations });
+    },
+  });
+}
+
 export const usePublicUser = (id?: string) =>
   useQuery({ queryKey: qk.user(id ?? ''), queryFn: () => get<PublicUser>(`/users/${id}`), enabled: !!id, retry: false });
 
