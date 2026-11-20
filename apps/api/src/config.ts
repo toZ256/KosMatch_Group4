@@ -47,9 +47,20 @@ function loadDotenvFiles(): void {
   }
 }
 
+export function sanitizeDatabaseUrl(url?: string): string | undefined {
+  if (!url) return url;
+  // Prisma Rust engine does not support channel_binding (often auto-added by Neon connection strings).
+  return url
+    .replace(/([?&])channel_binding=[^&]+(&|$)/g, (_match, prefix, suffix) => (suffix === '&' ? prefix : ''))
+    .replace(/[?&]$/, '');
+}
+
 /** Reads configuration from environment variables (defaults are dev-friendly). */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   loadDotenvFiles();
+  if (process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = sanitizeDatabaseUrl(process.env.DATABASE_URL);
+  }
   const useMockAi = (env.USE_MOCK_AI ?? 'false') === 'true';
   return {
     port: Number(env.PORT ?? 4000),
