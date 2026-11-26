@@ -1,7 +1,8 @@
-'use strict';
+import { createRequire } from 'node:module';
 
-// Entry point for Vercel Serverless Functions (/api/*).
+const require = createRequire(import.meta.url);
+
 // Pre-bundled during `pnpm build:vercel` into apps/api/dist/vercel-bundle.cjs.
 const bundle = require('../apps/api/dist/vercel-bundle.cjs');
 
-module.exports = bundle.default || bundle;
+export default bundle.default || bundle;

@@ -21,15 +21,8 @@ export default tseslint.config(
     rules: reactHooks.configs.recommended.rules,
   },
   {
-    files: ['apps/api/**/*.ts', 'packages/**/*.ts', '*.js', 'prisma/**/*.js', 'scripts/**/*.mjs', 'scripts/**/*.ts', 'e2e/**/*.ts', '*.config.ts'],
+    files: ['apps/api/**/*.ts', 'packages/**/*.ts', '*.js', 'api/**/*.js', 'prisma/**/*.js', 'scripts/**/*.mjs', 'scripts/**/*.ts', 'e2e/**/*.ts', '*.config.ts'],
     languageOptions: { globals: globals.node },
-  },
-  {
-    files: ['api/**/*.cjs'],
-    languageOptions: { globals: globals.node },
-    rules: {
-      '@typescript-eslint/no-require-imports': 'off',
-    },
   },
   prettier,
 );
