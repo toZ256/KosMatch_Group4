@@ -59,6 +59,8 @@ export interface KosSearchParams extends CustomDestQuery {
   q?: string;
   maxPrice?: number;
   tipe?: string;
+  limit?: number;
+  sort?: 'rating' | 'price_asc' | 'price_desc';
 }
 
 export const useKosList = (params: KosSearchParams) =>

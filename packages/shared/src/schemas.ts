@@ -181,6 +181,8 @@ export const KosQuerySchema = z.object({
   destLat: z.coerce.number().min(-90).max(90).optional(),
   destLng: z.coerce.number().min(-180).max(180).optional(),
   destName: z.string().trim().max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  sort: z.enum(['rating', 'price_asc', 'price_desc']).optional(),
 });
 
 export const CommuteQuerySchema = z
