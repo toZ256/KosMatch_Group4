@@ -44,6 +44,15 @@ export function getVercelApp(): Promise<Express> {
 
 /** Vercel Node.js Serverless Function entry point wrapping the Express app. */
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  // Restore original /api/<path> when routed via vercel.json rewrite (?__path=$1).
+  const parsed = new URL(req.url ?? '/', 'http://localhost');
+  const rewrittenPath = parsed.searchParams.get('__path');
+  if (rewrittenPath !== null) {
+    parsed.searchParams.delete('__path');
+    const qs = parsed.searchParams.toString();
+    req.url = `/api/${rewrittenPath.replace(/^\/+/, '')}${qs ? `?${qs}` : ''}`;
+  }
+
   const app = await getVercelApp();
   await new Promise<void>((resolve, reject) => {
     res.once('finish', resolve);

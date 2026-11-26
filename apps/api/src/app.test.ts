@@ -54,6 +54,10 @@ describe('health & public data', () => {
       const res = await request(vercelHandler).get('/api/health');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ ok: true, data: { status: 'ok', mode: { ai: 'mock', data: 'memory' } } });
+
+      const rewritten = await request(vercelHandler).get('/api/index.js?__path=kos&maxPrice=2000000');
+      expect(rewritten.status).toBe(200);
+      expect(rewritten.body.data.length).toBeGreaterThan(0);
     } finally {
       if (prevStore === undefined) delete process.env.DATA_STORE;
       else process.env.DATA_STORE = prevStore;
