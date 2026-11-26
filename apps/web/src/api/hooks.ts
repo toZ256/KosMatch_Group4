@@ -15,6 +15,7 @@ import type {
   PublicUser,
 } from '@kosmatch/shared';
 import { del, errorMessage, get, post, put } from './client';
+import { useConnectionStore } from '../lib/socket';
 import { useAuthStore } from '../stores/authStore';
 import { toast } from '../stores/toastStore';
 
@@ -169,26 +170,32 @@ export const useChatbotAsk = () => {
 
 export const useConversations = () => {
   const token = useAuthStore((s) => s.token);
+  const status = useConnectionStore((s) => s.status);
   return useQuery({
     queryKey: qk.conversations,
     queryFn: () => get<ConversationSummary[]>('/chats/conversations'),
     enabled: !!token,
+    refetchInterval: status !== 'connected' ? 3000 : false,
   });
 };
 
-export const useMessages = (otherId?: string) =>
-  useQuery({
+export const useMessages = (otherId?: string) => {
+  const status = useConnectionStore((s) => s.status);
+  return useQuery({
     queryKey: qk.messages(otherId ?? ''),
     queryFn: () => get<ChatHistory[]>(`/chats/${otherId}`),
     enabled: !!otherId,
     staleTime: 0,
+    refetchInterval: status !== 'connected' ? 2500 : false,
   });
+};
 
 export function useDeleteChatMessage() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (messageId: string) => del<{ id: string; deleted: boolean }>(`/chats/messages/${messageId}`),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['messages'] });
       void qc.invalidateQueries({ queryKey: qk.conversations });
     },
   });

@@ -5,6 +5,7 @@ import { InMemoryRepository } from './data/inMemoryRepository';
 import { MockCommuteProvider } from './providers/commute/MockCommuteProvider';
 import { MockLlmProvider } from './providers/llm/MockLlmProvider';
 import { createTestContext, login, type TestContext } from './test/helpers';
+import vercelHandler from './vercel';
 
 let ctx: TestContext;
 beforeAll(async () => {
@@ -42,6 +43,23 @@ describe('health & public data', () => {
     const res = await request(app).get('/api/health');
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, data: { status: 'ok', mode: { ai: 'rag', data: 'postgres' } } });
+  });
+
+  it('serves API routes through the Vercel serverless handler', async () => {
+    const prevStore = process.env.DATA_STORE;
+    const prevMock = process.env.USE_MOCK_AI;
+    process.env.DATA_STORE = 'memory';
+    process.env.USE_MOCK_AI = 'true';
+    try {
+      const res = await request(vercelHandler).get('/api/health');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ ok: true, data: { status: 'ok', mode: { ai: 'mock', data: 'memory' } } });
+    } finally {
+      if (prevStore === undefined) delete process.env.DATA_STORE;
+      else process.env.DATA_STORE = prevStore;
+      if (prevMock === undefined) delete process.env.USE_MOCK_AI;
+      else process.env.USE_MOCK_AI = prevMock;
+    }
   });
 
   it('lists destinations, kos with filters, and commute', async () => {

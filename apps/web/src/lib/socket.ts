@@ -4,14 +4,22 @@ import type { ChatHistory } from '@kosmatch/shared';
 import { post } from '../api/client';
 import { useAuthStore } from '../stores/authStore';
 
-export type ConnectionStatus = 'connected' | 'connecting';
+export type ConnectionStatus = 'connected' | 'connecting' | 'polling';
 
-export const useConnectionStore = create<{ status: ConnectionStatus }>(() => ({ status: 'connecting' }));
+const isSocketDisabled = () => import.meta.env.VITE_DISABLE_SOCKET === 'true';
+
+export const useConnectionStore = create<{ status: ConnectionStatus }>(() => ({
+  status: isSocketDisabled() ? 'polling' : 'connecting',
+}));
 
 let socket: Socket | null = null;
 let socketToken: string | null = null;
 
-export function connectSocket(token: string): Socket {
+export function connectSocket(token: string): Socket | null {
+  if (isSocketDisabled()) {
+    useConnectionStore.setState({ status: 'polling' });
+    return null;
+  }
   if (socket && socketToken === token) return socket;
   socket?.disconnect();
   useConnectionStore.setState({ status: 'connecting' });
@@ -35,7 +43,7 @@ export function disconnectSocket(): void {
   socket?.disconnect();
   socket = null;
   socketToken = null;
-  useConnectionStore.setState({ status: 'connecting' });
+  useConnectionStore.setState({ status: isSocketDisabled() ? 'polling' : 'connecting' });
 }
 
 export const getSocket = (): Socket | null => socket;

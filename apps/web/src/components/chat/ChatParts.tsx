@@ -25,6 +25,7 @@ export function useChatSocket(): void {
   useEffect(() => {
     if (!token || !userId) return;
     const socket = connectSocket(token);
+    if (!socket) return;
     const onNew = (m: ChatHistory) => {
       const other = m.senderId === userId ? m.receiverId : m.senderId;
       qc.setQueryData<ChatHistory[]>(qk.messages(other), (old) =>
@@ -50,10 +51,16 @@ export function useChatSocket(): void {
 export function ConnectionIndicator() {
   const status = useConnectionStore((s) => s.status);
   const connected = status === 'connected';
+  const polling = status === 'polling';
   return (
     <span data-testid="connection-status" className="inline-flex items-center gap-1.5 text-[11px] text-muted">
-      <span className={cn('h-2 w-2 rounded-full', connected ? 'bg-sukses' : 'animate-pulse bg-primary')} />
-      {connected ? 'Terhubung' : 'Menghubungkan ulang...'}
+      <span
+        className={cn(
+          'h-2 w-2 rounded-full',
+          connected ? 'bg-sukses' : polling ? 'bg-accent' : 'animate-pulse bg-primary',
+        )}
+      />
+      {connected ? 'Terhubung' : polling ? 'Sinkronisasi otomatis' : 'Menghubungkan ulang...'}
     </span>
   );
 }
