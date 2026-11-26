@@ -56,9 +56,11 @@ export class KosService {
       q?: string;
       maxPrice?: number;
       tipe?: TipeKos;
+      limit?: number;
+      sort?: 'rating' | 'price_asc' | 'price_desc';
     } & CustomDestinationParams,
   ) {
-    const { destinationId, destLat, destLng, destName, ...filter } = query;
+    const { destinationId, destLat, destLng, destName, limit, sort, ...filter } = query;
     const hubFromDestId = destinationId ? resolveLocationQuery(destinationId) : null;
     const effectiveFilter =
       !filter.q && hubFromDestId ? { ...filter, q: hubFromDestId.hub.name } : filter;
@@ -81,6 +83,18 @@ export class KosService {
         .filter(({ locMatch }) => locMatch.matches)
         .sort((a, b) => a.locMatch.relevanceScore - b.locMatch.relevanceScore)
         .map(({ kos }) => kos);
+    }
+
+    if (sort === 'rating') {
+      kosList = [...kosList].sort((a, b) => b.rating - a.rating);
+    } else if (sort === 'price_asc') {
+      kosList = [...kosList].sort((a, b) => a.hargaSewa - b.hargaSewa);
+    } else if (sort === 'price_desc') {
+      kosList = [...kosList].sort((a, b) => b.hargaSewa - a.hargaSewa);
+    }
+
+    if (limit !== undefined && limit > 0) {
+      kosList = kosList.slice(0, limit);
     }
 
     const hasExplicitDest = Boolean(destinationId) || (destLat !== undefined && destLng !== undefined);

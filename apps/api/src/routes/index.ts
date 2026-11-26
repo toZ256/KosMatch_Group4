@@ -154,6 +154,8 @@ export function createApiRouter(
         destLat?: number;
         destLng?: number;
         destName?: string;
+        limit?: number;
+        sort?: 'rating' | 'price_asc' | 'price_desc';
       };
       ok(res, await services.kos.list(q));
     }),

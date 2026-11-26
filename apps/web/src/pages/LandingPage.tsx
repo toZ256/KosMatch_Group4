@@ -15,7 +15,7 @@ export function LandingPage() {
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
   const openChatbot = useChatbotStore((s) => s.openPanel);
-  const { data, isLoading, isError, refetch } = useKosList({});
+  const { data, isLoading, isError, refetch } = useKosList({ sort: 'rating', limit: 4 });
 
   const popular = useMemo(() => [...(data ?? [])].sort((a, b) => b.rating - a.rating).slice(0, 4), [data]);
 
