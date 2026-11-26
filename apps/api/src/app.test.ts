@@ -1,4 +1,9 @@
+import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createApp } from './app';
+import { InMemoryRepository } from './data/inMemoryRepository';
+import { MockCommuteProvider } from './providers/commute/MockCommuteProvider';
+import { MockLlmProvider } from './providers/llm/MockLlmProvider';
 import { createTestContext, login, type TestContext } from './test/helpers';
 
 let ctx: TestContext;
@@ -24,6 +29,19 @@ describe('health & public data', () => {
   it('returns health in the envelope', async () => {
     const res = await ctx.api.get('/api/health');
     expect(res.body).toEqual({ ok: true, data: { status: 'ok', mode: { ai: 'mock', data: 'memory' } } });
+  });
+
+  it('reports configured runtime mode in /api/health', async () => {
+    const { app } = createApp({
+      repo: new InMemoryRepository(),
+      llm: new MockLlmProvider(),
+      commute: new MockCommuteProvider(),
+      jwtSecret: 'test-secret',
+      mode: { ai: 'rag', data: 'postgres' },
+    });
+    const res = await request(app).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, data: { status: 'ok', mode: { ai: 'rag', data: 'postgres' } } });
   });
 
   it('lists destinations, kos with filters, and commute', async () => {

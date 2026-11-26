@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: pnpm install --frozen-lockfile && pnpm db:generate
+    buildCommand: pnpm install --prod=false --frozen-lockfile && pnpm db:generate
     startCommand: pnpm --filter @kosmatch/api start
     healthCheckPath: /api/health
     envVars:

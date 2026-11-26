@@ -55,16 +55,26 @@ export function sanitizeDatabaseUrl(url?: string): string | undefined {
     .replace(/[?&]$/, '');
 }
 
+const INSECURE_JWT_SECRETS = new Set([
+  'dev-secret-change-me',
+  'change-me-in-production',
+  'dev-jwt-secret',
+]);
+
 /** Reads configuration from environment variables (defaults are dev-friendly). */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   loadDotenvFiles();
   if (process.env.DATABASE_URL) {
     process.env.DATABASE_URL = sanitizeDatabaseUrl(process.env.DATABASE_URL);
   }
+  const jwtSecret = env.JWT_SECRET?.trim() || 'dev-secret-change-me';
+  if (env.NODE_ENV === 'production' && (!env.JWT_SECRET?.trim() || INSECURE_JWT_SECRETS.has(jwtSecret))) {
+    throw new Error('JWT_SECRET wajib disetel dengan secret acak yang aman pada mode production');
+  }
   const useMockAi = (env.USE_MOCK_AI ?? 'false') === 'true';
   return {
     port: Number(env.PORT ?? 4000),
-    jwtSecret: env.JWT_SECRET ?? 'dev-secret-change-me',
+    jwtSecret,
     useMockAi,
     commuteProvider: env.COMMUTE_PROVIDER ?? (useMockAi ? 'mock' : 'osrm'),
     osrmBaseUrl: env.OSRM_BASE_URL ?? 'https://router.project-osrm.org',

@@ -70,6 +70,7 @@ async function seedKosFromCsv() {
           fotoColor: row.fotoColor ? String(row.fotoColor).trim() : '#B8C4D6',
           listrikTermasuk: parseBoolean(row.listrikTermasuk),
           dalamJakarta: parseBoolean(row.dalamJakarta),
+          ownerId: 'owner-bu-sari',
         });
       })
       .on('end', resolve)
@@ -103,18 +104,45 @@ async function seedDemoUsersAndDestinations() {
   const passwordHash = bcrypt.hashSync('password123', 8);
 
   const users = [
-    { nama: 'Demo Penyewa', email: 'tenant@kosmatch.test', passwordHash, role: 'tenant' },
-    { nama: 'Demo Penyewa 2', email: 'tenant2@kosmatch.test', passwordHash, role: 'tenant' },
-    { nama: 'Bu Sari (Pemilik)', email: 'owner@kosmatch.test', passwordHash, role: 'owner' },
-    { nama: 'Pak Budi (Pemilik)', email: 'owner2@kosmatch.test', passwordHash, role: 'owner' },
+    { id: 'tenant-demo-1', nama: 'Demo Penyewa', email: 'tenant@kosmatch.test', passwordHash, role: 'tenant' },
+    { id: 'tenant-demo-2', nama: 'Demo Penyewa 2', email: 'tenant2@kosmatch.test', passwordHash, role: 'tenant' },
+    { id: 'owner-bu-sari', nama: 'Bu Sari (Pemilik)', email: 'owner@kosmatch.test', passwordHash, role: 'owner' },
+    { id: 'owner-pak-budi', nama: 'Pak Budi (Pemilik)', email: 'owner2@kosmatch.test', passwordHash, role: 'owner' },
   ];
 
   for (const user of users) {
-    await prisma.user.upsert({
-      where: { email: user.email },
-      update: {},
-      create: user,
-    });
+    const existingByEmail = await prisma.user.findUnique({ where: { email: user.email } });
+    if (!existingByEmail) {
+      await prisma.user.upsert({
+        where: { id: user.id },
+        update: { email: user.email, nama: user.nama, role: user.role },
+        create: user,
+      });
+    } else if (user.id === 'owner-bu-sari' && existingByEmail.id !== 'owner-bu-sari') {
+      const canonicalExists = await prisma.user.findUnique({ where: { id: 'owner-bu-sari' } });
+      if (!canonicalExists) {
+        await prisma.$transaction(async (tx) => {
+          const oldId = existingByEmail.id;
+          const oldBookmarks = await tx.bookmark.findMany({ where: { userId: oldId } });
+          if (oldBookmarks.length > 0) {
+            await tx.bookmark.deleteMany({ where: { userId: oldId } });
+          }
+          await tx.user.update({
+            where: { id: oldId },
+            data: { id: 'owner-bu-sari' },
+          });
+          await tx.kos.updateMany({ where: { ownerId: oldId }, data: { ownerId: 'owner-bu-sari' } });
+          await tx.chatHistory.updateMany({ where: { senderId: oldId }, data: { senderId: 'owner-bu-sari' } });
+          await tx.chatHistory.updateMany({ where: { receiverId: oldId }, data: { receiverId: 'owner-bu-sari' } });
+          if (oldBookmarks.length > 0) {
+            await tx.bookmark.createMany({
+              data: oldBookmarks.map((b) => ({ userId: 'owner-bu-sari', kosId: b.kosId })),
+              skipDuplicates: true,
+            });
+          }
+        });
+      }
+    }
   }
 
   const destinations = [

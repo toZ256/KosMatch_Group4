@@ -1,5 +1,6 @@
 import cors from 'cors';
 import express, { type Express } from 'express';
+import type { HealthResponse } from '@kosmatch/shared';
 import type { Repository } from './data/repository';
 import { errorHandler, notFoundHandler } from './middleware/http';
 import type { CommuteProvider } from './providers/commute';
@@ -16,6 +17,7 @@ export interface AppDeps {
   commute: CommuteProvider;
   jwtSecret: string;
   corsOrigin?: string;
+  mode?: HealthResponse['mode'];
 }
 
 export function createApp(deps: AppDeps): { app: Express; services: Services } {
@@ -31,7 +33,7 @@ export function createApp(deps: AppDeps): { app: Express; services: Services } {
   app.disable('x-powered-by');
   app.use(cors({ origin: deps.corsOrigin ?? true }));
   app.use(express.json({ limit: '100kb' }));
-  app.use('/api', createApiRouter(deps.repo, services, deps.jwtSecret));
+  app.use('/api', createApiRouter(deps.repo, services, deps.jwtSecret, deps.mode));
   app.use('/api', notFoundHandler);
   app.use(errorHandler);
   return { app, services };

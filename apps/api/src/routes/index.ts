@@ -41,12 +41,17 @@ const requireUser = (req: { user?: { id: string } }): string => {
 
 const param = (value: string | string[] | undefined): string => (Array.isArray(value) ? (value[0] ?? '') : (value ?? ''));
 
-export function createApiRouter(repo: Repository, services: Services, jwtSecret: string): Router {
+export function createApiRouter(
+  repo: Repository,
+  services: Services,
+  jwtSecret: string,
+  mode: HealthResponse['mode'] = { ai: 'mock', data: 'memory' },
+): Router {
   const router = Router();
   const auth = authenticate(repo, jwtSecret);
 
   router.get('/health', (_req, res) => {
-    const data: HealthResponse = { status: 'ok', mode: { ai: 'mock', data: 'memory' } };
+    const data: HealthResponse = { status: 'ok', mode };
     ok(res, data);
   });
 

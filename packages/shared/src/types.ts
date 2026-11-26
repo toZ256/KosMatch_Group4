@@ -121,5 +121,5 @@ export interface PlaceSuggestion {
 
 export interface HealthResponse {
   status: 'ok';
-  mode: { ai: 'mock'; data: 'memory' };
+  mode: { ai: 'mock' | 'rag'; data: 'memory' | 'postgres' };
 }

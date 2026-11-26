@@ -24,6 +24,10 @@ async function main() {
     commute,
     jwtSecret: config.jwtSecret,
     corsOrigin: config.corsOrigin,
+    mode: {
+      ai: config.useMockAi ? 'mock' : 'rag',
+      data: config.dataStore === 'postgres' ? 'postgres' : 'memory',
+    },
   });
   const server = createServer(app);
   attachSocket(server, {
