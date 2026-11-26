@@ -71,7 +71,10 @@ export function createApiRouter(
   /* ---- public data ---- */
   router.get(
     '/destinations',
-    asyncHandler(async (_req, res) => ok(res, await repo.destinations.list())),
+    asyncHandler(async (_req, res) => {
+      res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+      ok(res, await repo.destinations.list());
+    }),
   );
   router.get(
     '/locations/search',
@@ -157,6 +160,7 @@ export function createApiRouter(
         limit?: number;
         sort?: 'rating' | 'price_asc' | 'price_desc';
       };
+      res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
       ok(res, await services.kos.list(q));
     }),
   );

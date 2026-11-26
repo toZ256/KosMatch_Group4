@@ -5,6 +5,8 @@ export interface KosFilter {
   maxPrice?: number;
   q?: string;
   tipe?: string;
+  limit?: number;
+  sort?: 'rating' | 'price_asc' | 'price_desc';
 }
 
 /** Storage abstraction. Services depend on this interface only. */

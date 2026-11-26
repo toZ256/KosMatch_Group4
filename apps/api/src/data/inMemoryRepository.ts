@@ -63,7 +63,7 @@ export class InMemoryRepository implements Repository {
           .map(({ kos }) => ({ ...kos }));
       }
 
-      return baseFiltered
+      let result = baseFiltered
         .filter(
           (k) =>
             k.namaKos.toLowerCase().includes(q) ||
@@ -72,6 +72,20 @@ export class InMemoryRepository implements Repository {
             k.fasilitas.some((f) => f.toLowerCase().includes(q)),
         )
         .map((k) => ({ ...k }));
+
+      if (filter?.sort === 'rating') {
+        result = result.sort((a, b) => b.rating - a.rating);
+      } else if (filter?.sort === 'price_asc') {
+        result = result.sort((a, b) => a.hargaSewa - b.hargaSewa);
+      } else if (filter?.sort === 'price_desc') {
+        result = result.sort((a, b) => b.hargaSewa - a.hargaSewa);
+      }
+
+      if (filter?.limit && filter.limit > 0) {
+        result = result.slice(0, filter.limit);
+      }
+
+      return result;
     },
     get: async (id) => {
       const k = this.kosMap.get(id);
