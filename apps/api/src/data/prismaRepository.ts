@@ -175,9 +175,19 @@ export class PrismaRepository implements Repository {
           ];
         }
       }
+      const orderBy =
+        !resolvedLoc && filter?.sort === 'rating'
+          ? [{ rating: 'desc' as const }, { createdAt: 'desc' as const }]
+          : !resolvedLoc && filter?.sort === 'price_asc'
+            ? { hargaSewa: 'asc' as const }
+            : !resolvedLoc && filter?.sort === 'price_desc'
+              ? { hargaSewa: 'desc' as const }
+              : { createdAt: 'desc' as const };
+
       const items = await this.prisma.kos.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
+        ...(!resolvedLoc && filter?.limit && filter.limit > 0 ? { take: filter.limit } : {}),
       });
 
       if (resolvedLoc) {

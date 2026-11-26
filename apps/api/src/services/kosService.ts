@@ -65,7 +65,11 @@ export class KosService {
     const effectiveFilter =
       !filter.q && hubFromDestId ? { ...filter, q: hubFromDestId.hub.name } : filter;
 
-    let kosList = await this.repo.kos.list(effectiveFilter);
+    const hasExplicitDest = Boolean(destinationId) || (destLat !== undefined && destLng !== undefined);
+    const canPushLimitToRepo = !hasExplicitDest && !effectiveFilter.q?.trim();
+    let kosList = await this.repo.kos.list(
+      canPushLimitToRepo ? { ...effectiveFilter, sort, limit } : effectiveFilter,
+    );
 
     const resolvedLoc = effectiveFilter.q?.trim()
       ? await defaultGeocoder.resolve(effectiveFilter.q)
@@ -97,7 +101,6 @@ export class KosService {
       kosList = kosList.slice(0, limit);
     }
 
-    const hasExplicitDest = Boolean(destinationId) || (destLat !== undefined && destLng !== undefined);
     if (hasExplicitDest) {
       const dest = await this.resolveTargetDestination({ destinationId, destLat, destLng, destName });
       if (!dest) throw new AppError('NOT_FOUND', 'Destinasi tidak ditemukan');
