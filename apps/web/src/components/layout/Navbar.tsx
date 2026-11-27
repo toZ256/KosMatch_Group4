@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Home, LogOut, MessageCircle, Menu, Store, X } from 'lucide-react';
+import { ChevronDown, LogOut, MessageCircle, Menu, Store, X } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useChatbotStore } from '../../stores/chatbotStore';
 import { Avatar } from '../ui/EmptyState';
@@ -25,14 +25,12 @@ const OWNER_LINKS = [
 
 export function Wordmark() {
   return (
-    <Link to="/" className="inline-flex items-center gap-2 text-lg font-extrabold tracking-tight" aria-label="KosMatch - Beranda">
-      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
-        <Home size={17} strokeWidth={2.5} />
-      </span>
-      <span>
-        <span className="text-primary">Kos</span>
-        <span className="text-ink">Match</span>
-      </span>
+    <Link to="/" className="inline-flex items-center" aria-label="KosMatch - Beranda">
+      <img
+        src="/brand/kosmatch-logo-horizontal.svg"
+        alt="KosMatch Jakarta"
+        className="h-8 w-auto object-contain sm:h-9"
+      />
     </Link>
   );
 }
