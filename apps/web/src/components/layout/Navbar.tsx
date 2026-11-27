@@ -13,14 +13,13 @@ const TENANT_LINKS = [
   { to: '/', label: 'Beranda', end: true },
   { to: '/cari', label: 'Cari Kos' },
   { to: '/tersimpan', label: 'Tersimpan' },
-  { to: '/notifikasi', label: 'Notifikasi' },
+  { to: '/chat', label: 'Pesan' },
 ];
 
 const OWNER_LINKS = [
   { to: '/', label: 'Beranda', end: true },
   { to: '/owner/kos', label: 'Kos Saya' },
   { to: '/chat', label: 'Pesan' },
-  { to: '/notifikasi', label: 'Notifikasi' },
 ];
 
 export function Wordmark() {
