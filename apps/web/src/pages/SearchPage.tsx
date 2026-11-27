@@ -125,6 +125,7 @@ export function SearchPage() {
   const [searchInput, setSearchInput] = useState(q);
   const [debouncedSearchInput, setDebouncedSearchInput] = useState(q);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
 
   useEffect(() => {
     setSearchInput(q);
@@ -353,22 +354,24 @@ export function SearchPage() {
         : [],
     [resolvedLocation],
   );
+  const activeFilterCount =
+    (destinationId || hasCustomCoords ? 1 : 0) +
+    (commuteMotor ? 1 : 0) +
+    (commuteTransit ? 1 : 0) +
+    (maxPriceParam ? 1 : 0) +
+    (tipe ? 1 : 0) +
+    selectedFacilities.length;
+
   const isFilterActive = Boolean(
-    destinationId ||
-      hasCustomCoords ||
-      commuteMotor ||
-      commuteTransit ||
+    activeFilterCount > 0 ||
       maxCommuteLegacy ||
-      maxPriceParam ||
-      tipe ||
       q ||
-      selectedFacilities.length > 0 ||
       sortBy !== 'default' ||
       currentPage > 1,
   );
 
   return (
-    <div className="page-container py-8">
+    <div className="page-container pb-24 pt-5 sm:py-8">
       <h1 className="sr-only">Cari Kos</h1>
 
       {/* TOP: Dedicated Clean Search Bar with Location & Corridor Suggestions */}
@@ -377,10 +380,10 @@ export function SearchPage() {
           role="search"
           aria-label="Pencarian kata kunci kos"
           onSubmit={handleSearchSubmit}
-          className="flex w-full items-center rounded-full border border-line/90 bg-surface p-1.5 shadow-float transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20"
+          className="flex w-full items-center gap-1.5 rounded-full border border-line/90 bg-surface p-1 shadow-float transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 sm:gap-2 sm:p-1.5"
         >
-          <div className="flex flex-1 items-center gap-2.5 pl-4 sm:pl-5">
-            <Search size={19} className="shrink-0 text-muted" aria-hidden />
+          <div className="flex min-w-0 flex-1 items-center gap-2 pl-3 pr-1 sm:gap-2.5 sm:pl-5">
+            <Search size={17} className="shrink-0 text-muted sm:h-[19px] sm:w-[19px]" aria-hidden />
             <input
               type="text"
               value={searchInput}
@@ -392,8 +395,8 @@ export function SearchPage() {
                 setSearchInput(e.target.value);
                 setShowSuggestions(true);
               }}
-              placeholder="Cari koridor, kawasan, jalan, atau fasilitas... (mis. TB Simatupang, Blok M, Kemang)"
-              className="w-full bg-transparent text-sm text-ink placeholder:text-muted focus:outline-none"
+              placeholder="Cari kawasan, gedung, atau jalan..."
+              className="min-w-0 w-full bg-transparent text-xs text-ink placeholder:text-muted focus:outline-none sm:text-sm"
             />
             {searchInput && (
               <button
@@ -402,14 +405,14 @@ export function SearchPage() {
                   setSearchInput('');
                   setParam('q', '');
                 }}
-                className="mr-1 rounded-full p-1 text-muted transition hover:bg-bg hover:text-ink"
+                className="shrink-0 rounded-full p-1 text-muted transition hover:bg-bg hover:text-ink"
                 aria-label="Hapus kata kunci pencarian"
               >
-                <X size={16} />
+                <X size={15} />
               </button>
             )}
           </div>
-          <Button type="submit" className="shrink-0 rounded-full px-5 py-2.5 text-sm font-semibold sm:px-7">
+          <Button type="submit" className="h-9 shrink-0 rounded-full px-4 text-xs font-semibold sm:h-11 sm:px-7 sm:text-sm">
             Cari
           </Button>
         </form>
@@ -550,9 +553,39 @@ export function SearchPage() {
         )}
       </div>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[290px_1fr]">
+      {/* Mobile Filter Toggle Bar (< lg) so kos results appear immediately without scrolling past the filter panel */}
+      <div className="mt-4 flex items-center justify-between gap-2 lg:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileFilterOpen((o) => !o)}
+          aria-expanded={mobileFilterOpen}
+          className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-surface px-4 text-xs font-bold text-ink shadow-sm transition hover:border-primary"
+        >
+          <SlidersHorizontal size={15} className="text-primary" />
+          <span>{mobileFilterOpen ? 'Tutup Filter' : 'Filter Pencarian'}</span>
+          {activeFilterCount > 0 && (
+            <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold text-white">
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
+        {isFilterActive && (
+          <button
+            type="button"
+            onClick={handleResetFilters}
+            className="text-xs font-semibold text-primary hover:underline"
+          >
+            Reset Filter
+          </button>
+        )}
+      </div>
+
+      <div className="mt-4 grid min-w-0 gap-6 lg:mt-8 lg:grid-cols-[290px_1fr]">
         {/* LEFT: Single Unified Filter Sidebar */}
-        <Card className="h-fit space-y-5 p-5 shadow-card" aria-label="Filter Pencarian">
+        <Card
+          className={`h-fit min-w-0 space-y-5 p-4 shadow-card sm:p-5 ${mobileFilterOpen ? 'block' : 'hidden lg:block'}`}
+          aria-label="Filter Pencarian"
+        >
           <div className="flex items-center justify-between border-b border-line pb-3">
             <div className="flex items-center gap-2">
               <SlidersHorizontal size={18} className="text-primary" />
@@ -684,26 +717,26 @@ export function SearchPage() {
                   </button>
                 )}
               </div>
-              <div className="flex flex-col gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5 lg:flex lg:flex-col">
                 {FACILITY_FILTER_OPTIONS.map((f) => {
                   const isChecked = selectedFacilities.includes(f.id);
                   return (
                     <label
                       key={f.id}
-                      className={`flex cursor-pointer items-center justify-between rounded-xl border px-3 py-1.5 text-xs transition select-none ${
+                      className={`flex min-w-0 cursor-pointer items-center justify-between rounded-xl border px-2.5 py-1.5 text-xs transition select-none sm:px-3 ${
                         isChecked
                           ? 'border-primary/60 bg-primary/10 font-semibold text-primary'
                           : 'border-line/70 bg-bg/40 text-ink/80 hover:border-line hover:bg-bg'
                       }`}
                     >
-                      <span className="flex items-center gap-2.5">
+                      <span className="flex min-w-0 items-center gap-2">
                         <input
                           type="checkbox"
                           checked={isChecked}
                           onChange={() => toggleFacility(f.id)}
-                          className="h-3.5 w-3.5 rounded border-line text-primary focus:ring-primary/20"
+                          className="h-3.5 w-3.5 shrink-0 rounded border-line text-primary focus:ring-primary/20"
                         />
-                        <span>{f.label}</span>
+                        <span className="truncate">{f.label}</span>
                       </span>
                     </label>
                   );
@@ -712,18 +745,27 @@ export function SearchPage() {
             </div>
           </div>
 
-          <Button variant="outline" className="w-full" onClick={handleResetFilters}>
-            Atur Ulang Filter
-          </Button>
+          <div className="flex flex-col gap-2">
+            <Button
+              type="button"
+              className="w-full lg:hidden"
+              onClick={() => setMobileFilterOpen(false)}
+            >
+              Lihat Hasil ({results.length})
+            </Button>
+            <Button variant="outline" className="w-full" onClick={handleResetFilters}>
+              Atur Ulang Filter
+            </Button>
+          </div>
         </Card>
 
         {/* RIGHT: Results Grid */}
-        <section aria-live="polite">
+        <section aria-live="polite" className="min-w-0">
           <div ref={resultsTopRef} />
 
           {/* Header Bar: Results summary + Sort Toolbar */}
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted">
+          <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
+            <p className="min-w-0 text-sm text-muted">
               {isLoading ? (
                 'Memuat kos...'
               ) : (
@@ -759,21 +801,21 @@ export function SearchPage() {
 
             {/* Sort Toolbar */}
             {!isLoading && results.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-muted">Urutkan:</span>
+              <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+                <span className="shrink-0 text-xs font-medium text-muted">Urutkan:</span>
                 <select
                   value={sortBy}
                   onChange={(e) => handleSortByChange(e.target.value as SortKey)}
                   aria-label="Pilih kriteria urutan"
-                  className="h-9 cursor-pointer rounded-xl border border-line/80 bg-surface px-3 py-1 text-xs font-semibold text-ink shadow-xs transition hover:border-primary focus:border-primary focus:outline-none"
+                  className="h-9 min-w-0 flex-1 cursor-pointer truncate rounded-xl border border-line/80 bg-surface px-2.5 py-1 text-xs font-semibold text-ink shadow-xs transition hover:border-primary focus:border-primary focus:outline-none sm:flex-none sm:px-3"
                 >
                   <option value="default">Rekomendasi</option>
                   <option value="harga">Harga Sewa</option>
                   <option value="waktu_ojek" disabled={!hasCommuteAnchor}>
-                    Waktu Tempuh (Ojek) {!hasCommuteAnchor ? '(butuh destinasi/kawasan)' : ''}
+                    Waktu Ojek {!hasCommuteAnchor ? '(pilih tujuan)' : ''}
                   </option>
                   <option value="waktu_transit" disabled={!hasCommuteAnchor}>
-                    Waktu Tempuh (Kereta / Transit) {!hasCommuteAnchor ? '(butuh destinasi/kawasan)' : ''}
+                    Waktu Transit {!hasCommuteAnchor ? '(pilih tujuan)' : ''}
                   </option>
                   <option value="rating">Rating</option>
                   <option value="nama">Nama Kos</option>
@@ -792,7 +834,7 @@ export function SearchPage() {
                         : 'Urutan menurun (klik untuk ubah ke menaik)'
                   }
                   aria-label="Ganti arah urutan menaik atau menurun"
-                  className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition active:scale-95 ${
+                  className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold transition active:scale-95 sm:px-3 ${
                     sortBy === 'default'
                       ? 'cursor-not-allowed border-line/50 bg-bg/40 text-muted/40'
                       : 'cursor-pointer border-line/80 bg-surface text-ink hover:border-primary hover:bg-bg hover:text-primary'

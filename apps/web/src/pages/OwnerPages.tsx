@@ -860,9 +860,9 @@ export function OwnerKosFormPage() {
         </div>
       )}
 
-      <div className="grid items-start gap-6 lg:grid-cols-[1fr_360px]">
+      <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[1fr_360px]">
         {/* LEFT: 4 Structured Studio Form Sections */}
-        <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="space-y-5">
+        <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="min-w-0 space-y-5">
           {/* 01. Identitas & Tipe Hunian */}
           <section className="rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6">
             <div className="mb-4 flex items-center gap-2.5 border-b border-line pb-3">

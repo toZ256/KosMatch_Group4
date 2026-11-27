@@ -28,7 +28,7 @@ export function LandingPage() {
   };
 
   return (
-    <div className="page-container pb-20 pt-8 sm:pt-12">
+    <div className="page-container pb-24 pt-6 sm:pb-20 sm:pt-12">
       <section className="mx-auto flex max-w-3xl flex-col items-center text-center">
         <h1 className="text-3xl font-extrabold leading-[1.18] tracking-tight text-ink sm:text-5xl">
           Cari Kos Impian,{' '}

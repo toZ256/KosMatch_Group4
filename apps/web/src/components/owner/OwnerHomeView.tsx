@@ -140,7 +140,7 @@ export function OwnerHomeView({ nama }: { nama: string }) {
       </section>
 
       {/* Main Operational Split Workspace */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1.45fr_1fr]">
+      <div className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[1.45fr_1fr]">
         {/* Left: Portfolio Management Quick List */}
         <section aria-labelledby="owner-portfolio-heading" className="min-w-0">
           <div className="rounded-2xl border border-line bg-surface shadow-card">

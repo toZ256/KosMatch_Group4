@@ -114,15 +114,15 @@ export function ChatbotOverlay() {
         data-testid="floating-chatbot-trigger"
         onClick={openPanel}
         aria-label="Buka KosMatch AI Chatbot"
-        className="group fixed bottom-5 right-5 z-40 flex items-center gap-3 rounded-full border-2 border-white/30 bg-accent py-2.5 pl-3 pr-5 text-white shadow-tactile-accent transition-[transform,filter] duration-150 hover:-translate-y-0.5 hover:brightness-105 active:translate-y-[2px] active:shadow-none sm:bottom-6 sm:right-6"
+        className="group fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border-2 border-white/30 bg-accent py-2 pl-2.5 pr-3.5 text-white shadow-tactile-accent transition-[transform,filter] duration-150 hover:-translate-y-0.5 hover:brightness-105 active:translate-y-[2px] active:shadow-none sm:bottom-6 sm:right-6 sm:gap-3 sm:py-2.5 sm:pl-3 sm:pr-5"
       >
-        <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white/20 shadow-inner transition-transform duration-200 group-hover:scale-105">
-          <Sparkles size={19} />
-          <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-accent bg-sukses" />
+        <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-white/20 shadow-inner transition-transform duration-200 group-hover:scale-105 sm:h-10 sm:w-10">
+          <Sparkles size={16} className="sm:h-[19px] sm:w-[19px]" />
+          <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-accent bg-sukses sm:h-3 sm:w-3" />
         </span>
         <span className="text-left leading-tight">
           <span className="block text-xs font-extrabold tracking-tight sm:text-sm">KosMatch AI</span>
-          <span className="block text-[10px] font-medium text-white/90 sm:text-[11px]">Tanya rekomendasi kos</span>
+          <span className="hidden text-[11px] font-medium text-white/90 sm:block">Tanya rekomendasi kos</span>
         </span>
       </button>
     );
@@ -136,7 +136,7 @@ export function ChatbotOverlay() {
         aria-modal="true"
         aria-label="KosMatch AI"
         data-testid="chatbot-panel"
-        className="relative flex h-full w-full animate-slide-in-right flex-col overflow-hidden bg-surface shadow-float sm:w-[410px] sm:rounded-[32px] sm:border sm:border-line/70"
+        className="relative flex h-[100dvh] w-full animate-slide-in-right flex-col overflow-hidden bg-surface shadow-float sm:h-full sm:w-[410px] sm:rounded-[32px] sm:border sm:border-line/70"
       >
         <header data-testid="chatbot-header" className="flex shrink-0 items-center justify-between bg-accent px-5 py-4 text-white">
           <div className="flex items-center gap-2.5">
